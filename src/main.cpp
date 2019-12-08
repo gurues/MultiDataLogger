@@ -44,6 +44,7 @@ File myFile;
 RTC_DATA_ATTR int mode_energy = 2; // Modos de energia -> 0: Normal 1: Ahorro Energia Activado 2: Arranque 1ª vez Normal
 RTC_DATA_ATTR uint32_t intervalo = 30000; // intervalo muestreo por defecto 30 seg.
 RTC_DATA_ATTR bool red_wifi = false; // Estado red wifi -> false: No conectado true: conectado.
+RTC_DATA_ATTR bool save_SD = true; // save_SD -> false: No graba datos en SD true: Graba datos en SD.
 int init_scan = 2; //Variable de control start/stop registro de datos
 String scan =" 30 seg";  // intervalo muestreo por defecto 30 seg mmostrado en pantalla
 uint16_t refresco = 1000; // refresco eventos cada 1 seg (SimpleTimer funciones)
@@ -146,7 +147,7 @@ void show_Data(){
 }
 
 // Menu de configuración intervalo de escaneo del DataLogger
-void submenu1(){
+void submenu1_SCAN(){
     ezMenu myMenu1("Configura intervalo de escaneo");
     myMenu1.addItem("30 seg");
     myMenu1.addItem("60 seg");
@@ -223,10 +224,11 @@ void submenu1(){
 }
 
 // Menu Borrar SD
-void submenu2(){
-    ezMenu myMenu2("Eliminar Datos SD");
+void submenu2_SD(){
+    ezMenu myMenu2("Configuracion SD");
     myMenu2.addItem("Borrar SD - SI");
-    myMenu2.addItem("Borrar SD - NO");
+    myMenu2.addItem("Grabar Datos SD SI/NO");
+    myMenu2.addItem("EXIT");
     switch (myMenu2.runOnce()) {
         case 1: // Se Borra fichero con datos y se crea de nuevo
             if (timer.isEnabled(numTimer)){
@@ -259,7 +261,30 @@ void submenu2(){
             }
             menu=0;
             break;
-        case 2: // No se Borra fichero con datos
+        case 2: // Grabar Datos en SD SI/NO
+            if (timer.isEnabled(numTimer)){
+                ez.msgBox("Grabar Datos en SD SI/NO", "Antes, STOP DataLogger");
+                Inicia_Pantalla();
+                show_Data();
+            }
+            else{
+                ezMenu myMenu22("Grabar Datos SD");
+                myMenu22.addItem("Grabar Datos - SI");
+                myMenu22.addItem("Grabar Datos - NO");
+                switch (myMenu22.runOnce()) {
+                    case 1: // Grabar Datos - SI
+                        save_SD = true;
+                        Inicia_Pantalla();
+                        break;  
+                    case 2: // Grabar Datos - NO
+                        save_SD = false;
+                        Inicia_Pantalla();
+                        break; 
+                }
+            }
+            menu=0;
+            break;
+        case 3: // EXIT
             if (timer.isEnabled(numTimer)){
                 Inicia_Pantalla();
                 show_Data();
@@ -272,11 +297,72 @@ void submenu2(){
 }
 
 // Menu Configuración General DAtaLoggger
-void submenu3(){
+void submenu3_CONFIG(){
     ez.settings.menu();
     ez.clock.tz.setLocation(F("Europe/Madrid"));
     ez.clock.waitForSync();
     Inicia_Pantalla();
+}
+
+void submenu4_RTC(){
+    int F_year, F_day, F_month, F_hour, F_minute=0;
+
+    if(red_wifi){
+        F_year=myTZ.year();
+        F_day=myTZ.day();
+        F_month=myTZ.month();
+        F_hour=myTZ.hour();
+        F_minute=myTZ.minute();
+    }
+
+    ezMenu myMenu4("Configuracion RTC");
+    myMenu4.addItem("Day");
+    myMenu4.addItem("Month");
+    myMenu4.addItem("Year");
+    myMenu4.addItem("Hour");
+    myMenu4.addItem("Minute");
+    myMenu4.addItem("RTC_OK");
+    myMenu4.addItem("EXIT");
+    String dato;
+    switch (myMenu4.runOnce()) {
+        case 1: // Dia   
+            dato = (ez.textInput("Day", (String)F_day));
+            F_day = dato.toInt();
+            submenu4_RTC();
+            break;
+        case 2: // Mes  
+            dato = (ez.textInput("Month", (String)F_month));
+            F_month = dato.toInt();
+            submenu4_RTC();
+            break;
+        case 3: // Año  
+            dato = (ez.textInput("Year", (String)F_year));
+            F_year = dato.toInt();
+            submenu4_RTC();
+            break;
+        case 4: // Hora  
+            dato = (ez.textInput("Hour", (String)F_hour));
+            F_hour = dato.toInt();
+            submenu4_RTC();
+            break;
+        case 5: // Minuto  
+            dato = (ez.textInput("Minute", (String)F_minute));
+            F_minute = dato.toInt();
+            submenu4_RTC();
+            break;
+        case 6: // RTC_OK
+            // Fijar a fecha y hora específica. En el ejemplo, 21 de Enero de 2016 a las 03:00:00
+            // rtc.adjust(DateTime(2016, 1, 21, 3, 0, 0));
+            rtc.adjust(DateTime(F_year, F_month, F_day, F_hour, F_minute, 0)); 
+            Inicia_Pantalla();
+            menu=0;
+            break;
+        case 7: // EXIT
+            Inicia_Pantalla();
+            menu=0;
+            break;
+    }
+    
 }
 
 // Menu Principal de Configuración del DataLogger
@@ -284,20 +370,24 @@ void Config_DataLogger(){
     menu=1;
     ezMenu myMenu("Configuracion DataLogger");
     myMenu.addItem("Intervalo de escaneo");
-    myMenu.addItem("Eliminar Datos SD");
+    myMenu.addItem("Configuracion SD");
     myMenu.addItem("Configuracion General");
+    myMenu.addItem("Configuracion RTC");
     myMenu.addItem ("EXIT");
     switch (myMenu.runOnce()) {
         case 1: // Intervalo de escaneo   
-            submenu1();
+            submenu1_SCAN();
             break;
         case 2: // Eliminar Datos SD  
-            submenu2();
+            submenu2_SD();
             break;
         case 3: // Configuracion General  
-            submenu3();
+            submenu3_CONFIG();
             break;
-        case 4: // EXIT
+        case 4: // Configuracion General  
+            submenu4_RTC();
+            break;
+        case 5: // EXIT
             if (timer.isEnabled(numTimer)){
                 Inicia_Pantalla();
                 show_Data();
@@ -394,31 +484,33 @@ void  getData(){
         Serial.println("Altitud = " + (String)altitud);
     #endif
     
-    //Almacenamos los datos en la SD
-    myFile = SD.open("/datalog.csv", FILE_APPEND);//abrimos  el archivo y añadimos datos
-    if (myFile) { 
-        #ifdef DEBUG_DATALOGGER
-            Serial.println("Almacenando datos en Tarjeta SD .....");
-        #endif
-        myFile.print((ez.clock.tz.dateTime("l, d-M-y H:i:s")));
-        myFile.print(",");
-        myFile.print(Fecha);
-        myFile.print(",");
-        myFile.print(temperatura);
-        myFile.print(",");
-        myFile.print(humedad);  
-        myFile.print(",");
-        myFile.print(presion);  
-        myFile.print(",");
-        myFile.println(altitud);  // Salto de linea 
-        myFile.close();         //cerramos el archivo                    
-    } 
-    else {
-  	    #ifdef DEBUG_DATALOGGER
-            Serial.println("Error al abrir el archivo en tarjeta SD");
-        #endif
+    if(save_SD){ // Control de grabación en SD
+        //Almacenamos los datos en la SD
+        myFile = SD.open("/datalog.csv", FILE_APPEND);//abrimos  el archivo y añadimos datos
+        if (myFile) { 
+            #ifdef DEBUG_DATALOGGER
+                Serial.println("Almacenando datos en Tarjeta SD .....");
+            #endif
+            myFile.print((myTZ.dateTime("l, d-M-y H:i:s")));
+            myFile.print(",");
+            myFile.print(Fecha);
+            myFile.print(",");
+            myFile.print(temperatura);
+            myFile.print(",");
+            myFile.print(humedad);  
+            myFile.print(",");
+            myFile.print(presion);  
+            myFile.print(",");
+            myFile.println(altitud);  // Salto de linea 
+            myFile.close();         //cerramos el archivo                    
+        } 
+        else {
+            #ifdef DEBUG_DATALOGGER
+                Serial.println("Error al abrir el archivo en tarjeta SD");
+            #endif
+        }
     }
-    
+
     // Si estamos ejectando el DataLogger en mode_energy = Ahorro de energia dormimos el Datalogger
     // hasta la siguiente lesctura para ahorra bateria
     if (mode_energy==1){
@@ -513,6 +605,10 @@ void setup() {
         while(EstadoWifi != EZWIFI_IDLE){}  // Espero a conectarme al WIFI
         ez.clock.waitForSync();
         ez.clock.tz.setLocation(F("Europe/Madrid"));
+        rtc.adjust(DateTime(ez.clock.tz.year(), ez.clock.tz.month(), 
+                            ez.clock.tz.day(), ez.clock.tz.hour(), 
+                            ez.clock.tz.minute(), 0)
+                    );
     }
     Inicia_Pantalla();
   }
