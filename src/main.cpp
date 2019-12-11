@@ -77,6 +77,9 @@ void Inicia_Pantalla(){
     ez.canvas.y(ez.canvas.height()/5);
     ez.canvas.x(15);
     ez.canvas.font(&FreeSerifBold12pt7b);
+    //Draw the jpeg file form TF card
+    //Draw the jpeg file "p2.jpg" from TF(SD) card
+    //M5.Lcd.drawJpgFile(SD, "/p2.jpg");
 } 
 
 // Escribe mensajes en Pantalla
@@ -449,9 +452,11 @@ void  getData(){
     }
     //RTC:
     DateTime now = rtc.now();
-    String Fecha = (String)now.day() + "/"+ (String)now.month() + "/"+ (String)now.year() 
+    char buffer_Fecha[20] = "DD-MM-YYYY hh:mm:ss";
+    now.toString(buffer_Fecha);
+    String Fecha = (String)now.day() + "/"+ (String)now.month() + "/"+ (String)(now.year()-146)
                     + " " + (String)now.hour() + ":"+ (String)now.minute() + ":"+ (String)now.second();
-
+    
     //Adquisición de datos del sensor
     //Leer temperatura.
     dtostrf(bme.readTemperature(),2,1,temperatura);
@@ -473,6 +478,7 @@ void  getData(){
         Serial.println("*************************************************************");
         Serial.println("Fecha / Hora WIFI: " + myTZ.dateTime("l, d-M-y H:i:s"));
         Serial.println("Fecha / Hora RTC: " + Fecha);
+        Serial.print("Fecha / Hora RTC2: "); Serial.println(buffer_Fecha);
         if(red_wifi) Serial.println("Red Wifi = True");
         else Serial.println("Red Wifi = False");
         Serial.println("Modo Energia = " + (String)mode_energy);
@@ -494,6 +500,7 @@ void  getData(){
             myFile.print((myTZ.dateTime("l, d-M-y H:i:s")));
             myFile.print(",");
             myFile.print(Fecha);
+            //myFile.print(buffer_Fecha);
             myFile.print(",");
             myFile.print(temperatura);
             myFile.print(",");
