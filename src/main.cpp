@@ -1,20 +1,34 @@
+//Descomenta para DEBUG Blynk por puerto serie
+#define BLYNK_DEBUG
+#define BLYNK_PRINT Serial
+
+// Descomenta para relizar DEBUG por puerto serie
+#define DEBUG_DATALOGGER
+
+// Librerias del programa
 #include <Arduino.h>
 #include <M5Stack.h>
 #include <ezTime.h>
 #include <M5ez.h>
-#include <Wire.h>     //The BME280 uses I2C comunication.
+#include <Wire.h>     
 #include <Adafruit_Sensor.h>
 #include <Adafruit_BME280.h>
 #include "RTClib.h"
 #include <SimpleTimer.h>
 #include <stdlib.h>
+#include <BlynkSimpleEsp32_BLE.h>
+#include <BLEDevice.h>
+#include <BLEServer.h>
 
-// Descomenta para relizar DEBUG por puerto serie
-#define DEBUG_DATALOGGER
+// Conexión BLE Blynk
+#define BLYNK_USE_DIRECT_CONNECT
+
+//Token app Blynk
+char auth[] = "votRVhHKSuTYsnu9cupBwNq-yD0scAZK";
 
 // Definición de Constantes
 #define uS_to_S_Factor 1000         // Factor para DeepSleep en segundos
-#define SEALEVELPRESSURE_HPA (1023.5) // Estimar la altitud para una presión dada comparándola con la presión
+#define SEALEVELPRESSURE_HPA (1010) // Estimar la altitud para una presión dada comparándola con la presión
                                     // a nivel del mar. Este ejemplo utiliza el valor predeterminado, pero 
                                     // para obtener resultados más precisos, reemplace el valor con la 
                                     // presión actual del nivel del mar en su ubicación
@@ -23,6 +37,9 @@
 #define PIN_Boton_C 37  // Pin - GPIO del Boton C en M5Stack, en el programa despertará al M5Stack
 #define PIN_SDA 21      // Pin SCA I2C
 #define PIN_SCL 22      // Pin SCL I2C
+
+// Refresco eventos cada 250 mseg (SimpleTimer funciones y Blynk App)
+const uint16_t refresco = 250; 
 
 // Objeto SimpleTimer para la ejecución periodica de funciones
 SimpleTimer timer;
@@ -45,10 +62,9 @@ RTC_DATA_ATTR int mode_energy = 2; // Modos de energia -> 0: Normal 1: Ahorro En
 RTC_DATA_ATTR uint32_t intervalo = 30000; // intervalo muestreo por defecto 30 seg.
 RTC_DATA_ATTR bool red_wifi = false; // Estado red wifi -> false: No conectado true: conectado.
 RTC_DATA_ATTR bool save_SD = true; // save_SD -> false: No graba datos en SD true: Graba datos en SD.
-int init_scan = 2; //Variable de control start/stop registro de datos
+RTC_DATA_ATTR int init_scan = 2; //Variable de control start/stop registro de datos
+RTC_DATA_ATTR bool estado_BLE = false; 
 String scan =" 30 seg";  // intervalo muestreo por defecto 30 seg mmostrado en pantalla
-uint16_t refresco = 1000; // refresco eventos cada 1 seg (SimpleTimer funciones)
-//int init_scan = 2; //Variable de control start/stop registro de datos
 int menu = 0; // Variable de control para no refrescar pantalla si estoy en un menu
 int battery; // Nivel de bateria 100% - 75% - 50% - 25%
 
@@ -67,6 +83,8 @@ char altitud [20];
 void Level_Battery(){
     battery = M5.Power.getBatteryLevel();
     ez.header.show("DATA LOGGER   " + (String)battery + "%");
+    if (estado_BLE)
+        Blynk.virtualWrite(V6,battery); 
 }
 
 // Inicio Pantalla Vacia
@@ -149,6 +167,20 @@ void show_Data(){
     ez.canvas.println(" % ");
 }
 
+void submenu_BLE(){
+    ezMenu myMenu_BLE("Configuracion BLE");
+    myMenu_BLE.addItem("BLE - ACTIVO");
+    myMenu_BLE.addItem("BLE - NO ACTIVO");
+    switch (myMenu_BLE.runOnce()) {
+        case 1: // Se Activa BLE
+            estado_BLE = true;
+            break;
+        case 2: // Se DesActiva BLE
+            estado_BLE = false;
+            break;
+    }
+}
+
 // Menu de configuración intervalo de escaneo del DataLogger
 void submenu1_SCAN(){
     ezMenu myMenu1("Configura intervalo de escaneo");
@@ -167,6 +199,8 @@ void submenu1_SCAN(){
             else{
                 intervalo = 30000;
                 scan =" 30 seg";
+                if (estado_BLE)
+                    Blynk.virtualWrite(V5,1); 
                 Inicia_Pantalla();
             }
             menu=0;
@@ -180,6 +214,8 @@ void submenu1_SCAN(){
             else{
                 intervalo = 60000;
                 scan =" 60 seg";
+                if (estado_BLE)
+                    Blynk.virtualWrite(V5,2);
                 Inicia_Pantalla();
             }
             menu=0;
@@ -193,6 +229,8 @@ void submenu1_SCAN(){
             else{
                 intervalo = 300000;
                 scan =" 5 min";
+                if (estado_BLE)
+                    Blynk.virtualWrite(V5,3);
                 Inicia_Pantalla();
             }
             menu=0;
@@ -206,6 +244,8 @@ void submenu1_SCAN(){
             else{
                 intervalo = 900000;
                 scan =" 15 min";
+                if (estado_BLE)
+                    Blynk.virtualWrite(V5,4);
                 Inicia_Pantalla();
             }
             menu=0;
@@ -219,6 +259,8 @@ void submenu1_SCAN(){
             else{
                 intervalo = 1800000;
                 scan =" 30 min";
+                if (estado_BLE)
+                    Blynk.virtualWrite(V5,5);
                 Inicia_Pantalla();
             }
             menu=0;
@@ -412,12 +454,16 @@ void scanButton() {
         write_Pantalla("Iniciado DataLogger escaneando cada" + scan);
         init_scan = 1;
         mode_energy = 0;
+        if (estado_BLE)
+            Blynk.virtualWrite(V0,init_scan);
     } 
 
     if ((btn == "STOP")&&(timer.isEnabled(numTimer))){
         write_Pantalla("Parado DataLogger");   
         init_scan = 0;
         mode_energy = 0;
+        if (estado_BLE)
+            Blynk.virtualWrite(V0,init_scan);
     } 
 
     if (btn == "OFF"){
@@ -426,6 +472,8 @@ void scanButton() {
 
     if ((btn == "SLEEP")&&(timer.isEnabled(numTimer))){
         mode_energy = 1;
+        if (estado_BLE)
+            Blynk.virtualWrite(V7,mode_energy);
         M5.Power.deepSleep(intervalo*uS_to_S_Factor);
     }
 
@@ -434,6 +482,8 @@ void scanButton() {
 //Ejecución de eventos asociados
 uint16_t Programa_Eventos(){
     timer.run(); // Inicio SimpleTimer para la ejecución de funciones
+    if (estado_BLE)
+        Blynk.run(); // Inicio Blynk
     return refresco; // retorna el intervalo para su nueva ejecución
 }
 
@@ -460,19 +510,32 @@ void  getData(){
     //Adquisición de datos del sensor
     //Leer temperatura.
     dtostrf(bme.readTemperature(),2,1,temperatura);
+    if (estado_BLE)
+        Blynk.virtualWrite(V1,temperatura); 
     //Leer humedad.
     dtostrf(bme.readHumidity(),2,1,humedad);
+    if (estado_BLE)
+        Blynk.virtualWrite(V2,humedad); 
     //Leer presion.
     dtostrf(bme.readPressure()/ 100.0F,2,1,presion);
+    if (estado_BLE)
+        Blynk.virtualWrite(V3,presion); 
     //Leer altitud.
     dtostrf(bme.readAltitude(SEALEVELPRESSURE_HPA),2,1,altitud);
-
-    //Muestra en pantalla los datos recogidos
+    if (estado_BLE)
+        Blynk.virtualWrite(V4,altitud);
+ 
+    //Muestra en pantalla los datos recogidos en modo normal (Ahorro Energia desactivado)
     if ((menu==0)&&(mode_energy!=1)){
+        Blynk.virtualWrite(V7,0); // Ahorro Energia DesActivado
         Inicia_Pantalla();
         show_Data();
     }
-
+    else{
+        if (estado_BLE)
+            Blynk.virtualWrite(V7,1); // Ahorro Energia Activado
+    }
+    
     // DEBUG DataLogger
     #ifdef DEBUG_DATALOGGER
         Serial.println("*************************************************************");
@@ -499,8 +562,8 @@ void  getData(){
             #endif
             myFile.print((myTZ.dateTime("l, d-M-y H:i:s")));
             myFile.print(",");
-            myFile.print(Fecha);
-            //myFile.print(buffer_Fecha);
+            //myFile.print(Fecha);
+            myFile.print(buffer_Fecha);
             myFile.print(",");
             myFile.print(temperatura);
             myFile.print(",");
@@ -518,12 +581,100 @@ void  getData(){
         }
     }
 
+    // Sincronizo Blynk
+    if (estado_BLE)
+        Blynk.syncAll();
+
     // Si estamos ejectando el DataLogger en mode_energy = Ahorro de energia dormimos el Datalogger
     // hasta la siguiente lesctura para ahorra bateria
     if (mode_energy==1){
         M5.Power.deepSleep(intervalo*uS_to_S_Factor);
     } 
 }
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//
+//             Funciones BLYNK APP
+
+// Se ejecuta cuando la conexión a Blynk se establece
+BLYNK_CONNECTED() {
+  //Sincroniza todos los pines virtuales con el último dato almacenado en el servidor de Blynk
+  Blynk.syncAll();
+}
+
+// Controla PULSADOR ON / OFF (BUTTON) DATALOGGER Blynk App
+BLYNK_WRITE(V0)
+{ 
+    init_scan = param.asInt();   
+}
+
+// Controla el muestreo del DATALOGGER Blynk App
+BLYNK_WRITE(V5)
+{ 
+    switch (param.asInt()){
+        case 1: // 30seg
+            intervalo = 30000;
+            scan =" 30 seg";
+            #ifdef DEBUG_DATALOGGER
+                Serial.println("Blynk 30 seg");
+            #endif
+            break;
+        case 2: // 60 seg
+            intervalo = 60000;
+            scan =" 60 seg";
+            #ifdef DEBUG_DATALOGGER
+                Serial.println("Blynk 60 seg");
+            #endif
+            break;
+        case 3: // 5 min
+            intervalo = 300000;
+            scan =" 5 min";
+            #ifdef DEBUG_DATALOGGER
+                Serial.println("Blynk 5 min");
+            #endif
+            break;
+        case 4: // 15 min
+            intervalo = 900000;
+            scan =" 15 min";
+            #ifdef DEBUG_DATALOGGER
+                Serial.println("Blynk 15 min");
+            #endif
+            break;
+        case 5: // 30min
+            intervalo = 1800000;
+            scan =" 30 min";
+            #ifdef DEBUG_DATALOGGER
+                Serial.println("Blynk 30 min");
+            #endif
+            break;
+        }
+    //Actualizo el intervalo de escaneo si Blynk app lo cambia
+    if (timer.isEnabled(numTimer)){
+        timer.deleteTimer(numTimer);
+        numTimer = timer.setInterval(intervalo, getData);
+    }  
+}
+
+// Controla PULSADOR ON / OFF (BUTTON) LOW ENERGY DATALOGGER Blynk App
+BLYNK_WRITE(V7)
+{ 
+    if ((mode_energy == 1)||(timer.isEnabled(numTimer))){ // Se activo Ahorro de energia o inicio DataLogger
+        mode_energy = param.asInt();// Modos de energia -> 0: Normal 1: Ahorro Energia Activado 
+    }
+    else{
+        Blynk.virtualWrite(V7,0);
+    }
+    
+}
+
+BLYNK_WRITE(V8)
+{ 
+    if(param.asInt() == 0){
+        M5.Power.powerOFF();
+    }
+
+}
+
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -537,7 +688,7 @@ void setup() {
   // Inicio M5STACK
   ez.begin();
   delay(50);
-  if (mode_energy!=1){ // En todos los mode_energy menos en ahorra de energia
+  if (mode_energy!=1){ // En todos los mode_energy menos en ahorro de energia
     Inicia_Pantalla();
   }
   
@@ -567,44 +718,16 @@ void setup() {
     while (1);
   }
 
-  // Registro la pulsación del Boton C para salir del sueño profundo  
-  M5.Power.setWakeupButton(PIN_Boton_C);
-  // Verifico como se sale del sueño profundo
-  esp_sleep_wakeup_cause_t wakeup_reason = esp_sleep_get_wakeup_cause();
-  switch (wakeup_reason){
-    case ESP_SLEEP_WAKEUP_EXT0: //Pulsado Boton C
-        Inicia_Pantalla();
-        mode_energy=0; // DESACTIVADO Ahorro de energia
-        init_scan=1;
-        if (red_wifi){ // Se conectara a WIFI si antes del sueño profundo esta conectado
-            WifiState_t EstadoWifi = EZWIFI_IDLE;
-            while(EstadoWifi != EZWIFI_IDLE){}
-            ez.clock.waitForSync();
-            ez.clock.tz.setLocation(F("Europe/Madrid"));
-            Inicia_Pantalla();
-        }
-        getTimeScan();
-        ez.canvas.println("Ahorro Energia Desactivado");
-        ez.canvas.println(" ");
-        ez.canvas.println("   DataLogger iniciado");
-        ez.canvas.println("   cada" + scan);
-        #ifdef DEBUG_DATALOGGER
-            Serial.println("SETUP EXT0: intervalo = " + (String)intervalo);
-            Serial.println("SETUP EXT0: scan " + scan);
-        #endif
-        break;
-    case ESP_SLEEP_WAKEUP_TIMER: //Timer cada intervalo
-        // ACTIVADO Ahorro de energia
-        #ifdef DEBUG_DATALOGGER
-            getTimeScan();
-            Serial.println("SETUP TIMER: intervalo = " + (String)intervalo);
-            Serial.println("SETUP TIMER: scan = " + scan);
-        #endif
-        break;
+  // Inicio BLYNK
+  if (estado_BLE){
+    Blynk.setDeviceName("DataLogger");
+    Blynk.begin(auth);
   }
+  
 
-  // M5ez -> Configuración inicial WIFI y reloj 
+  // M5ez -> Configuración inicial WIFI, reloj y Blynk App
   if (mode_energy==2){
+    ez.settings.menuObj.addItem("Bluetooth BLE", submenu_BLE);
     ez.settings.menu();
     red_wifi = ez.wifi.autoConnect; // Compruebo si me tengo que conecta al WIFI
     if (red_wifi){
@@ -625,6 +748,64 @@ void setup() {
     WifiState_t EstadoWifi = EZWIFI_IDLE;
     while(EstadoWifi != EZWIFI_IDLE){}
   }
+  
+  // Espera a estar conectado a Blynk BLE
+  //while (Blynk.connect() == false) {} 
+
+  //Gestión del Ahorro de Energia mediante Deep_Sleep del ESP-32 (M5STACK)
+
+  // Registro la pulsación del Boton C para salir del sueño profundo  
+  M5.Power.setWakeupButton(PIN_Boton_C);
+  // Verifico como se sale del sueño profundo
+  esp_sleep_wakeup_cause_t wakeup_reason = esp_sleep_get_wakeup_cause();
+  switch (wakeup_reason){
+    case ESP_SLEEP_WAKEUP_EXT0: //Pulsado Boton C
+        Inicia_Pantalla();
+        mode_energy=0; // DESACTIVADO Ahorro de energia
+        init_scan=1; // antes era init_scan = 2 en loop()
+        if (red_wifi){ // Se conectara a WIFI si antes del sueño profundo esta conectado
+            WifiState_t EstadoWifi = EZWIFI_IDLE;
+            while(EstadoWifi != EZWIFI_IDLE){}
+            ez.clock.waitForSync();
+            ez.clock.tz.setLocation(F("Europe/Madrid"));
+            Inicia_Pantalla();
+        }
+        getTimeScan();
+        ez.canvas.println("Ahorro Energia Desactivado");
+        ez.canvas.println(" ");
+        ez.canvas.println("   DataLogger iniciado");
+        ez.canvas.println("   cada" + scan);
+        #ifdef DEBUG_DATALOGGER
+            Serial.println("SETUP EXT0: intervalo = " + (String)intervalo);
+            Serial.println("SETUP EXT0: scan " + scan);
+        #endif
+        break;
+    case ESP_SLEEP_WAKEUP_TIMER: //Timer cada intervalo
+        // ACTIVADO Ahorro de energia
+        if (mode_energy==0){
+            Inicia_Pantalla();
+            mode_energy=0; // DESACTIVADO Ahorro de energia
+            init_scan=1; // antes era init_scan = 2 en loop()
+            if (red_wifi){ // Se conectara a WIFI si antes del sueño profundo esta conectado
+                WifiState_t EstadoWifi = EZWIFI_IDLE;
+                while(EstadoWifi != EZWIFI_IDLE){}
+                ez.clock.waitForSync();
+                ez.clock.tz.setLocation(F("Europe/Madrid"));
+                Inicia_Pantalla();
+            }
+            getTimeScan();
+            ez.canvas.println("Ahorro Energia Desactivado");
+            ez.canvas.println(" ");
+            ez.canvas.println("   DataLogger iniciado");
+            ez.canvas.println("   cada" + scan);
+        }
+        #ifdef DEBUG_DATALOGGER
+            getTimeScan();
+            Serial.println("SETUP TIMER: intervalo = " + (String)intervalo);
+            Serial.println("SETUP TIMER: scan = " + scan);
+        #endif
+        break;
+  }
 
   //Inicio y desactivo Timer
   numTimer = timer.setInterval(intervalo, getData);
@@ -634,6 +815,9 @@ void setup() {
     timer.disable(batTimer);
   }
 
+ // Eventos asociados a M5ez: SimpleTimer run y Blynk App
+  ez.addEvent(Programa_Eventos, refresco); 
+
 }
 
 void loop() {
@@ -642,8 +826,19 @@ void loop() {
     switch (mode_energy) {
         case 1: // Ahorro de energia con DataLogger inicializado
             timer.disable(batTimer);
+            init_scan = 1; // Para cuando se desactive el modo ahorro energia activar el timer
             getData(); // regoje y graba datos en SD cada intervalo
-        default:
+            break;
+        case 2: // Condiciones iniciales Blynk mientras no se active el DataLogger
+            if (estado_BLE){
+                Blynk.virtualWrite(V0,0); //DataLogger Parado
+                Blynk.virtualWrite(V5,1); //Escaneo inicial 30 seg
+                Blynk.virtualWrite(V7,0); //DataLogger Low Energy OFF
+                Blynk.virtualWrite(V8,1); // Encendido DataLogger ON
+            }
+            mode_energy = 0; // Solo se ejecura 1 vez  mode_energy = 2
+            break;
+        default: //mode_energy = 0
             if (init_scan==1){ // Inicia DataLogger
                 #ifdef DEBUG_DATALOGGER
                     Serial.println("LOOP: intervalo = " + (String)intervalo);
@@ -651,11 +846,13 @@ void loop() {
                 #endif
                 timer.deleteTimer(numTimer);
                 numTimer = timer.setInterval(intervalo, getData); // regoje y graba datos en SD cada intervalo
-                ez.addEvent(Programa_Eventos, refresco); // Eventos asociados a M5ez: SimpleTimer run
+                write_Pantalla("Iniciado DataLogger escaneando cada" + scan);
+                mode_energy = 0;
             }
             if (init_scan==0){ // Para DataLogger
                 timer.disable(numTimer);
-                ez.removeEvent(Programa_Eventos);
+                write_Pantalla("Parado DataLogger");   
+                mode_energy = 0;
             }
             init_scan=2; // reinicio variable control DataLogger
             scanButton(); // Gestión acciones de los botones
