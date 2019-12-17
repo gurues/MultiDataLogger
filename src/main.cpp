@@ -63,7 +63,7 @@ RTC_DATA_ATTR uint32_t intervalo = 30000; // intervalo muestreo por defecto 30 s
 RTC_DATA_ATTR bool red_wifi = false; // Estado red wifi -> false: No conectado true: conectado.
 RTC_DATA_ATTR bool save_SD = true; // save_SD -> false: No graba datos en SD true: Graba datos en SD.
 RTC_DATA_ATTR int init_scan = 2; //Variable de control start/stop registro de datos
-RTC_DATA_ATTR bool estado_BLE = false; 
+RTC_DATA_ATTR bool estado_BLE = false; //Variable de control Bluetooth BLE -> false: No conectado true: conectado.
 String scan =" 30 seg";  // intervalo muestreo por defecto 30 seg mmostrado en pantalla
 int menu = 0; // Variable de control para no refrescar pantalla si estoy en un menu
 int battery; // Nivel de bateria 100% - 75% - 50% - 25%
@@ -169,13 +169,28 @@ void show_Data(){
 
 void submenu_BLE(){
     ezMenu myMenu_BLE("Configuracion BLE");
-    myMenu_BLE.addItem("BLE - ACTIVO");
-    myMenu_BLE.addItem("BLE - NO ACTIVO");
+    myMenu_BLE.addItem("BLE - START");
+    myMenu_BLE.addItem("BLE - STOP");
     switch (myMenu_BLE.runOnce()) {
         case 1: // Se Activa BLE
-            estado_BLE = true;
+            if((esp_bt_controller_get_status() == ESP_BT_CONTROLLER_STATUS_IDLE)||
+                (esp_bt_controller_get_status() == ESP_BT_CONTROLLER_STATUS_NUM)){
+                btStart(); //Inicio Bluetooth
+                Blynk.setDeviceName("DataLogger");
+                Blynk.begin(auth); // Inicio BLYNK
+                // Espera a estar conectado a Blynk BLE
+                //while (Blynk.connect() == false) {} 
+                Blynk.virtualWrite(V0,0); //DataLogger Parado
+                Blynk.virtualWrite(V5,1); //Escaneo inicial 30 seg
+                Blynk.virtualWrite(V7,0); //DataLogger Low Energy OFF
+                Blynk.virtualWrite(V8,1); // Encendido DataLogger ON
+                menu= 0;
+                estado_BLE = true;   
+            }         
             break;
         case 2: // Se DesActiva BLE
+            btStop();
+            menu= 0;
             estado_BLE = false;
             break;
     }
@@ -454,8 +469,10 @@ void scanButton() {
         write_Pantalla("Iniciado DataLogger escaneando cada" + scan);
         init_scan = 1;
         mode_energy = 0;
-        if (estado_BLE)
+        if (estado_BLE){
             Blynk.virtualWrite(V0,init_scan);
+            Blynk.virtualWrite(V9,"");
+        }
     } 
 
     if ((btn == "STOP")&&(timer.isEnabled(numTimer))){
@@ -504,6 +521,8 @@ void  getData(){
     DateTime now = rtc.now();
     char buffer_Fecha[20] = "DD-MM-YYYY hh:mm:ss";
     now.toString(buffer_Fecha);
+    if (estado_BLE)
+        Blynk.virtualWrite(V9,buffer_Fecha); 
     String Fecha = (String)now.day() + "/"+ (String)now.month() + "/"+ (String)(now.year()-146)
                     + " " + (String)now.hour() + ":"+ (String)now.minute() + ":"+ (String)now.second();
     
@@ -531,9 +550,8 @@ void  getData(){
         Inicia_Pantalla();
         show_Data();
     }
-    else{
-        if (estado_BLE)
-            Blynk.virtualWrite(V7,1); // Ahorro Energia Activado
+    if ((estado_BLE)&&(mode_energy==1)){
+        Blynk.virtualWrite(V7,1); // Ahorro Energia Activado
     }
     
     // DEBUG DataLogger
@@ -702,31 +720,32 @@ void setup() {
     while (1);
   }
 
-  // Inicio RTC DS1307
-  if (!rtc.begin()) {
-    ez.canvas.println("No encontrado RTC");
-    while (1);
-   }
-   if (mode_energy==2){
-      // Fijar a fecha y hora de compilacion por defecto
-      rtc.adjust(DateTime(F(__DATE__), F(__TIME__)));
-   }
-
   // Inicio tarjeta SD
   if (!SD.begin()) {
     ez.canvas.println("Fallo SD o SD no insertada");
     while (1);
   }
 
-  // Inicio BLYNK
-  if (estado_BLE){
-    Blynk.setDeviceName("DataLogger");
-    Blynk.begin(auth);
-  }
-  
+  // Inicio RTC DS1307
+  if (!rtc.begin()) {
+    ez.canvas.println("No encontrado RTC");
+    while (1);
+   }
 
-  // M5ez -> Configuración inicial WIFI, reloj y Blynk App
+   // Inicio Bluetooth BLE
+  if (estado_BLE){
+    ez.settings.menuObj.addItem("Bluetooth BLE", submenu_BLE);
+    Blynk.setDeviceName("DataLogger");
+    Blynk.begin(auth); // Inicio BLYNK
+  }
+  else{
+    btStop();
+    delay(10);
+  }
+ 
+  // M5ez -> Configuración inicial WIFI, reloj y Blynk App (Solo se ejecuta 1 vez en primer arranque)
   if (mode_energy==2){
+    rtc.adjust(DateTime(F(__DATE__), F(__TIME__))); // Fecha y Hora de compilacion para el RTC
     ez.settings.menuObj.addItem("Bluetooth BLE", submenu_BLE);
     ez.settings.menu();
     red_wifi = ez.wifi.autoConnect; // Compruebo si me tengo que conecta al WIFI
@@ -735,6 +754,7 @@ void setup() {
         while(EstadoWifi != EZWIFI_IDLE){}  // Espero a conectarme al WIFI
         ez.clock.waitForSync();
         ez.clock.tz.setLocation(F("Europe/Madrid"));
+        // Fecha y Hora del servidor WIFI para el RTC
         rtc.adjust(DateTime(ez.clock.tz.year(), ez.clock.tz.month(), 
                             ez.clock.tz.day(), ez.clock.tz.hour(), 
                             ez.clock.tz.minute(), 0)
@@ -743,14 +763,11 @@ void setup() {
     Inicia_Pantalla();
   }
 
-  // Conexión WIFI en mode_energy = 1
+  // Espero a conectarme a WIFI -> Normalmente mode_energy = 1 (Ahorro de Energia) tras Deep Sleep M5STACK
   if (red_wifi){ 
     WifiState_t EstadoWifi = EZWIFI_IDLE;
     while(EstadoWifi != EZWIFI_IDLE){}
   }
-  
-  // Espera a estar conectado a Blynk BLE
-  //while (Blynk.connect() == false) {} 
 
   //Gestión del Ahorro de Energia mediante Deep_Sleep del ESP-32 (M5STACK)
 
