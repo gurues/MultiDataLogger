@@ -29,4 +29,4 @@ I2C scanner. Scanning ...
 Found address: 104 (0x68) GROVE M5STACK
 Found address: 117 (0x75) IP5306 Controlador de Bateria del M5STACK 
 Found address: 118 (0x76) BME-280
-Found address: 119 (0x77) BME-280
+Found address: 119 (0x77) BME-680

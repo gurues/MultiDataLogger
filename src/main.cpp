@@ -13,6 +13,7 @@
 #include <Wire.h>     
 #include <Adafruit_Sensor.h>
 #include <Adafruit_BME280.h>
+#include "Adafruit_BME680.h"
 #include "RTClib.h"
 #include <SimpleTimer.h>
 #include <stdlib.h>
@@ -53,7 +54,11 @@ RTC_DS1307 rtc;
 Timezone myTZ;
 
 // Objeto BME280
-Adafruit_BME280 bme; // I2C
+Adafruit_BME280 bme280(0x76); // I2C
+
+// Objeto BME280
+Adafruit_BME680 bme680(0x77); // I2C
+
 
 // Objeto para el manejo de ficheros en tarjeta SD
 File myFile;
@@ -65,6 +70,9 @@ enum estado_energy{
 enum estado_registro{
     stop, start, reinicio
 };
+enum Sensor_Registro{
+    ninguno, BME280, BME680
+};
 RTC_DATA_ATTR int mode_energy = Arranque; // Modos de energia -> 0: Normal 1: Ahorro Energia Activado 2: Arranque 1ª vez Normal
 RTC_DATA_ATTR uint32_t intervalo = 30000; // intervalo muestreo por defecto 30 seg.
 RTC_DATA_ATTR bool red_wifi = false; // Estado red wifi -> false: No conectado true: conectado.
@@ -72,15 +80,16 @@ RTC_DATA_ATTR bool save_SD = true; // save_SD -> false: No graba datos en SD tru
 RTC_DATA_ATTR int init_scan = reinicio; //Variable de control start/stop/reinicio registro de datos
 RTC_DATA_ATTR bool estado_BLE = false; //Variable de control Bluetooth BLE -> false: No conectado true: conectado.
 RTC_DATA_ATTR bool espera_BLE = false; //Variable de control espera conexión Bluetooth BLE -> false: No espera true: espera.
+RTC_DATA_ATTR Sensor_Registro sensor = ninguno; // Sensor I2C a registrar
 String scan =" 30 seg";  // intervalo muestreo por defecto 30 seg mmostrado en pantalla
 bool menu = false; // Variable de control para no refrescar pantalla si estoy en un menu
 int battery; // Nivel de bateria 100% - 75% - 50% - 25%
 
-//variables a registrar BME280
-char temperatura [20];
-char humedad [20];
-char presion [20];
-char altitud [20];
+//variables a registrar del sensor
+char registro_1 [20];
+char registro_2 [20];
+char registro_3 [20];
+char registro_4 [20];
 
 // Terminal de la app BLE BLYNK
 WidgetTerminal terminal (V10);
@@ -155,25 +164,25 @@ void show_Data(){
     ez.canvas.y(2*(ez.canvas.height()/6));
     ez.canvas.x(15);
     ez.canvas.print("Altitud: ");
-    ez.canvas.print(altitud);
+    ez.canvas.print(registro_4);
     ez.canvas.println(" m ");
 
     ez.canvas.y(3*(ez.canvas.height()/6));
     ez.canvas.x(15);
     ez.canvas.print("Presion: ");
-    ez.canvas.print(presion);
+    ez.canvas.print(registro_3);
     ez.canvas.println(" mbar ");
 
     ez.canvas.y(4*(ez.canvas.height()/6));
     ez.canvas.x(15);
     ez.canvas.print("Temperatura: ");
-    ez.canvas.print(temperatura);
+    ez.canvas.print(registro_1);
     ez.canvas.println(" *C ");
     
     ez.canvas.y(5*(ez.canvas.height()/6));
     ez.canvas.x(15);
     ez.canvas.print("Humedad: ");
-    ez.canvas.print(humedad);
+    ez.canvas.print(registro_2);
     ez.canvas.println(" % ");
 }
 
@@ -533,6 +542,177 @@ uint16_t Programa_Eventos(){
     return refresco; // retorna el intervalo para su nueva ejecución
 }
 
+void sensor_BME280(char Fecha_RTC[20]){
+    char *campos[] = { "    Temperatura = ", " ºC",  "    Humedad = ", " %"};
+    //Leer temperatura.
+    dtostrf(bme280.readTemperature(),2,1,registro_1);
+    if (estado_BLE){
+        Blynk.virtualWrite(V1,registro_1); 
+        terminal.print("    Temperatura = ");
+        terminal.print(registro_1);
+        terminal.println(" ºC");
+        terminal.flush();
+    }
+    //Leer humedad.
+    dtostrf(bme280.readHumidity(),2,1,registro_2);
+    if (estado_BLE){
+        Blynk.virtualWrite(V2,registro_2); 
+        terminal.print("    Humedad = ");
+        terminal.print(registro_2);
+        terminal.println(" %");
+        terminal.flush();
+    }
+    //Leer presion.
+    dtostrf(bme280.readPressure()/ 100.0F,2,1,registro_3);
+    if (estado_BLE){
+        Blynk.virtualWrite(V3,registro_3); 
+        terminal.print("    Presion = ");
+        terminal.print(registro_3);
+        terminal.println(" mbar");
+        terminal.flush();
+    }
+    //Leer altitud.
+    dtostrf(bme280.readAltitude(SEALEVELPRESSURE_mbar),2,1,registro_4);
+    if (estado_BLE){
+        Blynk.virtualWrite(V4,registro_4);
+        terminal.print("    Altitud = ");
+        terminal.print(registro_4);
+        terminal.println(" m");
+        terminal.flush();
+    }
+ 
+    // DEBUG DataLogger
+    #ifdef DEBUG_DATALOGGER
+        Serial.println("*************************************************************");
+        Serial.println("Fecha / Hora WIFI: " + myTZ.dateTime("l, d-M-y H:i:s"));
+        Serial.print("Fecha / Hora RTC: "); Serial.println(Fecha_RTC);
+        if(red_wifi) Serial.println("Red Wifi = True");
+        else Serial.println("Red Wifi = False");
+        if(estado_BLE) Serial.println("estado_BLE = True");
+        else Serial.println("estado_BLE = False");
+        if(espera_BLE) Serial.println("espera_BLE = True");
+        else Serial.println("espera_BLE = False");
+        Serial.println("Modo Energia = " + (String)mode_energy);
+        Serial.println("scan = " + (String)scan);
+        Serial.println("Temperatura = " + (String)registro_1);
+        Serial.println("Humedad = " + (String)registro_2);
+        Serial.println("Presión = " + (String)registro_3);
+        Serial.println("Altitud = " + (String)registro_4);
+    #endif
+    
+    if(save_SD){ // Control de grabación en SD
+        //Almacenamos los datos en la SD
+        myFile = SD.open("/datalog.csv", FILE_APPEND);//abrimos  el archivo y añadimos datos
+        if (myFile) { 
+            #ifdef DEBUG_DATALOGGER
+                Serial.println("Almacenando datos en Tarjeta SD .....");
+            #endif
+            myFile.print((myTZ.dateTime("l, d-M-y H:i:s")));
+            myFile.print(",");
+            myFile.print(Fecha_RTC);
+            myFile.print(",");
+            myFile.print(registro_1);
+            myFile.print(",");
+            myFile.print(registro_2);  
+            myFile.print(",");
+            myFile.print(registro_3);  
+            myFile.print(",");
+            myFile.println(registro_4);  // Salto de linea 
+            myFile.close();         //cerramos el archivo                    
+        } 
+        else {
+            #ifdef DEBUG_DATALOGGER
+                Serial.println("Error al abrir el archivo en tarjeta SD");
+            #endif
+        }
+    }
+}
+
+void sensor_BME680(char Fecha_RTC[20]){
+    //Leer temperatura.
+    dtostrf(bme680.readTemperature(),2,1,registro_1);
+    if (estado_BLE){
+        Blynk.virtualWrite(V1,registro_1); 
+        terminal.print("    Temperatura = ");
+        terminal.print(registro_1);
+        terminal.println(" ºC");
+        terminal.flush();
+    }
+    //Leer humedad.
+    dtostrf(bme680.readHumidity(),2,1,registro_2);
+    if (estado_BLE){
+        Blynk.virtualWrite(V2,registro_2); 
+        terminal.print("    Humedad = ");
+        terminal.print(registro_2);
+        terminal.println(" %");
+        terminal.flush();
+    }
+    //Leer presion.
+    dtostrf(bme680.readPressure()/ 100.0F,2,1,registro_3);
+    if (estado_BLE){
+        Blynk.virtualWrite(V3,registro_3); 
+        terminal.print("    Presion = ");
+        terminal.print(registro_3);
+        terminal.println(" mbar");
+        terminal.flush();
+    }
+    //Leer gas VOC.uint32_t readGas(void);
+    dtostrf(bme680.readGas(),2,1,registro_4);
+    if (estado_BLE){
+        Blynk.virtualWrite(V4,registro_4);
+        terminal.print("    Altitud = ");
+        terminal.print(registro_4);
+        terminal.println(" m");
+        terminal.flush();
+    }
+ 
+    // DEBUG DataLogger
+    #ifdef DEBUG_DATALOGGER
+        Serial.println("*************************************************************");
+        Serial.println("Fecha / Hora WIFI: " + myTZ.dateTime("l, d-M-y H:i:s"));
+        Serial.print("Fecha / Hora RTC: "); Serial.println(Fecha_RTC);
+        if(red_wifi) Serial.println("Red Wifi = True");
+        else Serial.println("Red Wifi = False");
+        if(estado_BLE) Serial.println("estado_BLE = True");
+        else Serial.println("estado_BLE = False");
+        if(espera_BLE) Serial.println("espera_BLE = True");
+        else Serial.println("espera_BLE = False");
+        Serial.println("Modo Energia = " + (String)mode_energy);
+        Serial.println("scan = " + (String)scan);
+        Serial.println("Temperatura = " + (String)registro_1);
+        Serial.println("Humedad = " + (String)registro_2);
+        Serial.println("Presión = " + (String)registro_3);
+        Serial.println("Altitud = " + (String)registro_4);
+    #endif
+    
+    if(save_SD){ // Control de grabación en SD
+        //Almacenamos los datos en la SD
+        myFile = SD.open("/datalog.csv", FILE_APPEND);//abrimos  el archivo y añadimos datos
+        if (myFile) { 
+            #ifdef DEBUG_DATALOGGER
+                Serial.println("Almacenando datos en Tarjeta SD .....");
+            #endif
+            myFile.print((myTZ.dateTime("l, d-M-y H:i:s")));
+            myFile.print(",");
+            myFile.print(Fecha_RTC);
+            myFile.print(",");
+            myFile.print(registro_1);
+            myFile.print(",");
+            myFile.print(registro_2);  
+            myFile.print(",");
+            myFile.print(registro_3);  
+            myFile.print(",");
+            myFile.println(registro_4);  // Salto de linea 
+            myFile.close();         //cerramos el archivo                    
+        } 
+        else {
+            #ifdef DEBUG_DATALOGGER
+                Serial.println("Error al abrir el archivo en tarjeta SD");
+            #endif
+        }
+    }
+}
+
 // Recoge los datos requeridos los muestra en pantlla y los alamacena en la tarjeta SD
 void  getData(){
     // Fecha y Hora -> WIFI y RTC
@@ -551,10 +731,8 @@ void  getData(){
     DateTime now = rtc.now();
     char buffer_Fecha[20] = "DD-MM-YYYY hh:mm:ss";
     now.toString(buffer_Fecha);
-    String Fecha = (String)now.day() + "/"+ (String)now.month() + "/"+ (String)(now.year()-146)
-                    + " " + (String)now.hour() + ":"+ (String)now.minute() + ":"+ (String)now.second();
     
-    //Adquisición de datos del sensor
+    //Adquisición y registro de datos del sensor
     //Enviar Fecha app Blynk
     if (estado_BLE){
         Blynk.virtualWrite(V9,buffer_Fecha); 
@@ -562,43 +740,17 @@ void  getData(){
         terminal.println(buffer_Fecha);
         terminal.flush();
     }   
-    //Leer temperatura.
-    dtostrf(bme.readTemperature(),2,1,temperatura);
-    if (estado_BLE){
-        Blynk.virtualWrite(V1,temperatura); 
-        terminal.print("    Temperatura = ");
-        terminal.print(temperatura);
-        terminal.println(" ºC");
-        terminal.flush();
+    
+    //Adquirimos y registramos datos del sensor
+    switch(sensor) {
+        case BME280:  
+            sensor_BME280(buffer_Fecha);
+            break;
+        case BME680:  
+            sensor_BME680(buffer_Fecha);
+            break;
     }
-    //Leer humedad.
-    dtostrf(bme.readHumidity(),2,1,humedad);
-    if (estado_BLE){
-        Blynk.virtualWrite(V2,humedad); 
-        terminal.print("    Humedad = ");
-        terminal.print(humedad);
-        terminal.println(" %");
-        terminal.flush();
-    }
-    //Leer presion.
-    dtostrf(bme.readPressure()/ 100.0F,2,1,presion);
-    if (estado_BLE){
-        Blynk.virtualWrite(V3,presion); 
-        terminal.print("    Presion = ");
-        terminal.print(presion);
-        terminal.println(" mbar");
-        terminal.flush();
-    }
-    //Leer altitud.
-    dtostrf(bme.readAltitude(SEALEVELPRESSURE_mbar),2,1,altitud);
-    if (estado_BLE){
-        Blynk.virtualWrite(V4,altitud);
-        terminal.print("    Altitud = ");
-        terminal.print(altitud);
-        terminal.println(" m");
-        terminal.flush();
-    }
- 
+
     if ((estado_BLE)&&(espera_BLE)){
         delay(2500); // retardo para escribir en el terminal
     }
@@ -614,54 +766,6 @@ void  getData(){
     if (estado_BLE)
         Blynk.syncAll();
 
-    // DEBUG DataLogger
-    #ifdef DEBUG_DATALOGGER
-        Serial.println("*************************************************************");
-        Serial.println("Fecha / Hora WIFI: " + myTZ.dateTime("l, d-M-y H:i:s"));
-        Serial.println("Fecha / Hora RTC: " + Fecha);
-        Serial.print("Fecha / Hora RTC2: "); Serial.println(buffer_Fecha);
-        if(red_wifi) Serial.println("Red Wifi = True");
-        else Serial.println("Red Wifi = False");
-        if(estado_BLE) Serial.println("estado_BLE = True");
-        else Serial.println("estado_BLE = False");
-        if(espera_BLE) Serial.println("espera_BLE = True");
-        else Serial.println("espera_BLE = False");
-        Serial.println("Modo Energia = " + (String)mode_energy);
-        Serial.println("scan = " + (String)scan);
-        Serial.println("Temperatura = " + (String)temperatura);
-        Serial.println("Humedad = " + (String)humedad);
-        Serial.println("Presión = " + (String)presion);
-        Serial.println("Altitud = " + (String)altitud);
-    #endif
-    
-    if(save_SD){ // Control de grabación en SD
-        //Almacenamos los datos en la SD
-        myFile = SD.open("/datalog.csv", FILE_APPEND);//abrimos  el archivo y añadimos datos
-        if (myFile) { 
-            #ifdef DEBUG_DATALOGGER
-                Serial.println("Almacenando datos en Tarjeta SD .....");
-            #endif
-            myFile.print((myTZ.dateTime("l, d-M-y H:i:s")));
-            myFile.print(",");
-            //myFile.print(Fecha);
-            myFile.print(buffer_Fecha);
-            myFile.print(",");
-            myFile.print(temperatura);
-            myFile.print(",");
-            myFile.print(humedad);  
-            myFile.print(",");
-            myFile.print(presion);  
-            myFile.print(",");
-            myFile.println(altitud);  // Salto de linea 
-            myFile.close();         //cerramos el archivo                    
-        } 
-        else {
-            #ifdef DEBUG_DATALOGGER
-                Serial.println("Error al abrir el archivo en tarjeta SD");
-            #endif
-        }
-    }
-    
     // Si estamos ejectando el DataLogger en mode_energy = Ahorro de energia dormimos el Datalogger
     // hasta la siguiente lectura para ahorra bateria Sueño profundo ESP32 del M5STACK
     if (mode_energy==Ahorro){// Desconectamos WIFI si estaba activo
@@ -683,6 +787,79 @@ void  getData(){
         }
         M5.Power.deepSleep(intervalo*uS_to_S_Factor);
     } 
+}
+
+void Scanner_I2C(){
+    #ifdef DEBUG_DATALOGGER
+        Serial.println ();
+        Serial.println ("I2C scanner. Scanning ...");
+    #endif
+    byte count = 0;
+    byte direccion_I2C = 0;
+
+    for (direccion_I2C = 8; direccion_I2C < 120; direccion_I2C++){
+        Wire.beginTransmission (direccion_I2C); // Begin I2C transmission Address (i)
+        if (Wire.endTransmission () == 0)  // Receive 0 = success (ACK response) 
+        {
+            if (((direccion_I2C)!=104)&&((direccion_I2C)!=117)){ // 0x68 y 0x75 IC2 del M5STACK
+                #ifdef DEBUG_DATALOGGER
+                    Serial.print ("Found address: ");
+                    Serial.print (direccion_I2C, DEC);
+                    Serial.print (" (0x");
+                    Serial.print (direccion_I2C, HEX);     
+                    Serial.println (")");
+                #endif
+                break;
+            }
+        count++;
+        }
+    }
+    switch(direccion_I2C){
+        case 118://0x76
+            sensor = BME280;
+            break;
+        case 119://0x77
+            sensor = BME680;
+            break;
+        default:
+            sensor = ninguno;
+            break;
+    }
+
+    #ifdef DEBUG_DATALOGGER
+        Serial.print ("Found ");      
+        Serial.print (count, DEC);        // numbers of devices
+        Serial.println (" device(s).");
+    #endif
+}
+
+void inicio_sensor(){
+    switch(sensor) {
+        case BME280:
+            // Inicio BME280
+            if (!bme280.begin(0x76)) {
+                ez.canvas.println("No encontrado sensor");
+                ez.canvas.println("  BME280 !!!");
+                while (1);
+            }
+            break;
+        case BME680:
+            // Inicio BME680
+            if (!bme680.begin()) {
+                ez.canvas.println("No encontrado sensor");
+                ez.canvas.println("  BME680 !!!");
+                while (1);
+            }
+            // Set up oversampling and filter initialization
+            bme680.setTemperatureOversampling(BME680_OS_8X);
+            bme680.setHumidityOversampling(BME680_OS_2X);
+            bme680.setPressureOversampling(BME680_OS_4X);
+            bme680.setIIRFilterSize(BME680_FILTER_SIZE_3);
+            bme680.setGasHeater(320, 150); // 320*C for 150 ms
+            break;
+        default:
+            break;
+    }
 }
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -774,143 +951,141 @@ BLYNK_WRITE(V8)
 
 void setup() {
 
-  #ifdef DEBUG_DATALOGGER
-    Serial.begin(115200);
-    Serial.println("Iniciando DATALOGGER ...");
-  #endif
-  
-  // Inicio M5STACK
-  ez.begin();
-  delay(50);
-  if (mode_energy!=Ahorro){ // En todos los mode_energy menos en ahorro de energia
-    Inicia_Pantalla();
-  }
-  
-  // Inicio I2C
-  Wire.begin(PIN_SDA, PIN_SCL);
-
-  // Inicio BME280
-  if (!bme.begin()) {
-    ez.canvas.println("No encontrado sensor");
-    ez.canvas.println("  BME280 !!!");
-    while (1);
-  }
-
-  // Inicio tarjeta SD
-  if (!SD.begin()) {
-    ez.canvas.println("Fallo SD o SD no insertada");
-    while (1);
-  }
-
-  // Inicio RTC DS1307
-  if (!rtc.begin()) {
-    ez.canvas.println("No encontrado RTC");
-    while (1);
-   }
-
-   // Inicio Bluetooth BLE (no se ejecuta en el arranque inicial estado_BLE=false, solo si hay Deep Sleep ESP32)
-  if (estado_BLE){
-    btStart(); //Inicio Bluetooth
-    ez.settings.menuObj.addItem("Bluetooth BLE", submenu_BLE);
-    Blynk.setDeviceName("DataLogger");
-    Blynk.begin(auth); // Inicio BLYNK
-  }
-  else{
-    btStop();
-    delay(10);
-  }
- 
-  // M5ez -> Configuración inicial WIFI, reloj y Blynk App (Solo se ejecuta 1 vez en primer arranque)
-  if (mode_energy==Arranque){
-    rtc.adjust(DateTime(F(__DATE__), F(__TIME__))); // Fecha y Hora de compilacion para el RTC
-    ez.settings.menuObj.addItem("Bluetooth BLE", submenu_BLE);
-    ez.settings.menu();
-    red_wifi = ez.wifi.autoConnect; // Compruebo si me tengo que conecta al WIFI
-    if (red_wifi){
-        WifiState_t EstadoWifi = EZWIFI_IDLE;
-        while(EstadoWifi != EZWIFI_IDLE){}  // Espero a conectarme al WIFI
-        ez.clock.waitForSync();
-        ez.clock.tz.setLocation(F("Europe/Madrid"));
-        // Fecha y Hora del servidor WIFI para el RTC
-        rtc.adjust(DateTime(ez.clock.tz.year(), ez.clock.tz.month(), 
-                            ez.clock.tz.day(), ez.clock.tz.hour(), 
-                            ez.clock.tz.minute(), 0)
-                    );
-    }
-    //if (estado_BLE)
-        //while (Blynk.connect() == false) {}
-    Inicia_Pantalla();
-  }
-
-  // Espero a conectarme a WIFI -> Normalmente mode_energy = 1 (Ahorro de Energia) tras Deep Sleep M5STACK
-  if (red_wifi){ 
-    WifiState_t EstadoWifi = EZWIFI_IDLE;
-    while(EstadoWifi != EZWIFI_IDLE){}
-  }
-
-  //Gestión del Ahorro de Energia mediante Deep_Sleep del ESP-32 (M5STACK)
-
-  // Registro la pulsación del Boton C para salir del sueño profundo  
-  M5.Power.setWakeupButton(PIN_Boton_C);
-  // Verifico como se sale del sueño profundo
-  esp_sleep_wakeup_cause_t wakeup_reason = esp_sleep_get_wakeup_cause();
-  switch (wakeup_reason){
-    case ESP_SLEEP_WAKEUP_EXT0: // RETORNO DEEP SLEEP -> Pulsado Boton C
-        // power on the Lcd
-        M5.Lcd.wakeup();
-        M5.Lcd.setBrightness(50);
+    #ifdef DEBUG_DATALOGGER
+        Serial.begin(115200);
+        Serial.println("Iniciando DATALOGGER ...");
+    #endif
+    
+    // Inicio M5STACK
+    ez.begin();
+    delay(50);
+    if (mode_energy!=Ahorro){ // En todos los mode_energy menos en ahorro de energia
         Inicia_Pantalla();
-        mode_energy=Normal; // DESACTIVADO Ahorro de energia
-        init_scan=start; // antes era init_scan = 2 en loop()
-        if (red_wifi){ // Se conectara a WIFI si antes del sueño profundo esta conectado
+    }
+    
+    // Inicio I2C
+    Wire.begin(PIN_SDA, PIN_SCL);
+    Scanner_I2C();
+    #ifdef DEBUG_DATALOGGER
+        Serial.println("LOOP: sensor = " + (String)sensor);
+    #endif
+    inicio_sensor();
+    
+    // Inicio tarjeta SD
+    if (!SD.begin()) {
+        ez.canvas.println("Fallo SD o SD no insertada");
+        while (1);
+    }
+
+    // Inicio RTC DS1307
+    if (!rtc.begin()) {
+        ez.canvas.println("No encontrado RTC");
+        while (1);
+    }
+
+    // Inicio Bluetooth BLE (no se ejecuta en el arranque inicial estado_BLE=false, solo si hay Deep Sleep ESP32)
+    if (estado_BLE){
+        btStart(); //Inicio Bluetooth
+        ez.settings.menuObj.addItem("Bluetooth BLE", submenu_BLE);
+        Blynk.setDeviceName("DataLogger");
+        Blynk.begin(auth); // Inicio BLYNK
+    }
+    else{
+        btStop();
+        delay(10);
+    }
+    
+    // M5ez -> Configuración inicial WIFI, reloj y Blynk App (Solo se ejecuta 1 vez en primer arranque)
+    if (mode_energy==Arranque){
+        rtc.adjust(DateTime(F(__DATE__), F(__TIME__))); // Fecha y Hora de compilacion para el RTC
+        ez.settings.menuObj.addItem("Bluetooth BLE", submenu_BLE);
+        ez.settings.menu();
+        red_wifi = ez.wifi.autoConnect; // Compruebo si me tengo que conecta al WIFI
+        if (red_wifi){
             WifiState_t EstadoWifi = EZWIFI_IDLE;
-            while(EstadoWifi != EZWIFI_IDLE){}
+            while(EstadoWifi != EZWIFI_IDLE){}  // Espero a conectarme al WIFI
             ez.clock.waitForSync();
             ez.clock.tz.setLocation(F("Europe/Madrid"));
-            Inicia_Pantalla();
+            // Fecha y Hora del servidor WIFI para el RTC
+            rtc.adjust(DateTime(ez.clock.tz.year(), ez.clock.tz.month(), 
+                                ez.clock.tz.day(), ez.clock.tz.hour(), 
+                                ez.clock.tz.minute(), 0)
+                        );
         }
-        getTimeScan();
-        ez.canvas.println("Ahorro Energia Desactivado");
-        ez.canvas.println(" ");
-        ez.canvas.println("   DataLogger iniciado");
-        ez.canvas.println("   cada" + scan);
-        #ifdef DEBUG_DATALOGGER
-            Serial.println("SETUP EXT0: intervalo = " + (String)intervalo);
-            Serial.println("SETUP EXT0: scan " + scan);
-        #endif
-        break;
-    case ESP_SLEEP_WAKEUP_TIMER: // RETORNO DEEP SLEEP -> Timer cada intervalo
-        // ACTIVADO Ahorro de energia
-        // power off the Lcd
-        M5.Lcd.setBrightness(0);
-        M5.Lcd.sleep();
-        #ifdef DEBUG_DATALOGGER
-            getTimeScan();
-            Serial.println("SETUP TIMER: intervalo = " + (String)intervalo);
-            Serial.println("SETUP TIMER: scan = " + scan);
-        #endif
-        break;
-  }
-
-  // Espera a estar conectado a Blynk BLE
-  if ((estado_BLE)&&(espera_BLE)){
-        while (Blynk.connect(5000U) == false) {} //yield();
-        if (mode_energy==Ahorro)
-            Blynk.virtualWrite(V7,1);
+        //if (estado_BLE)
+            //while (Blynk.connect() == false) {}
+        Inicia_Pantalla();
     }
 
-  // En mode_energy "ahorro de energia" desactiva actualizar nivel bateria en pantalla
-  if (mode_energy==Ahorro){ 
-    timer.disable(batTimer);
-  }
+    // Espero a conectarme a WIFI -> Normalmente mode_energy = 1 (Ahorro de Energia) tras Deep Sleep M5STACK
+    if (red_wifi){ 
+        WifiState_t EstadoWifi = EZWIFI_IDLE;
+        while(EstadoWifi != EZWIFI_IDLE){}
+    }
 
-  //Inicio y desactivo Timer
-  numTimer = timer.setInterval(intervalo, getData);
-  batTimer = timer.setInterval(300000, Level_Battery); // Cada 5 min actualizo nivel de bateria
-  timer.disable(numTimer);
+    //Gestión del Ahorro de Energia mediante Deep_Sleep del ESP-32 (M5STACK)
 
- // Eventos asociados a M5ez: SimpleTimer run y Blynk App
-  ez.addEvent(Programa_Eventos, refresco); 
+    // Registro la pulsación del Boton C para salir del sueño profundo  
+    M5.Power.setWakeupButton(PIN_Boton_C);
+    // Verifico como se sale del sueño profundo
+    esp_sleep_wakeup_cause_t wakeup_reason = esp_sleep_get_wakeup_cause();
+    switch (wakeup_reason){
+        case ESP_SLEEP_WAKEUP_EXT0: // RETORNO DEEP SLEEP -> Pulsado Boton C
+            // power on the Lcd
+            M5.Lcd.wakeup();
+            M5.Lcd.setBrightness(50);
+            Inicia_Pantalla();
+            mode_energy=Normal; // DESACTIVADO Ahorro de energia
+            init_scan=start; // antes era init_scan = 2 en loop()
+            if (red_wifi){ // Se conectara a WIFI si antes del sueño profundo esta conectado
+                WifiState_t EstadoWifi = EZWIFI_IDLE;
+                while(EstadoWifi != EZWIFI_IDLE){}
+                ez.clock.waitForSync();
+                ez.clock.tz.setLocation(F("Europe/Madrid"));
+                Inicia_Pantalla();
+            }
+            getTimeScan();
+            ez.canvas.println("Ahorro Energia Desactivado");
+            ez.canvas.println(" ");
+            ez.canvas.println("   DataLogger iniciado");
+            ez.canvas.println("   cada" + scan);
+            #ifdef DEBUG_DATALOGGER
+                Serial.println("SETUP EXT0: intervalo = " + (String)intervalo);
+                Serial.println("SETUP EXT0: scan " + scan);
+            #endif
+            break;
+        case ESP_SLEEP_WAKEUP_TIMER: // RETORNO DEEP SLEEP -> Timer cada intervalo
+            // ACTIVADO Ahorro de energia
+            // power off the Lcd
+            M5.Lcd.setBrightness(0);
+            M5.Lcd.sleep();
+            #ifdef DEBUG_DATALOGGER
+                getTimeScan();
+                Serial.println("SETUP TIMER: intervalo = " + (String)intervalo);
+                Serial.println("SETUP TIMER: scan = " + scan);
+            #endif
+            break;
+    }
+
+    // Espera a estar conectado a Blynk BLE
+    if ((estado_BLE)&&(espera_BLE)){
+            while (Blynk.connect(5000U) == false) {} //yield();
+            if (mode_energy==Ahorro)
+                Blynk.virtualWrite(V7,1);
+        }
+
+    // En mode_energy "ahorro de energia" desactiva actualizar nivel bateria en pantalla
+    if (mode_energy==Ahorro){ 
+        timer.disable(batTimer);
+    }
+
+    //Inicio y desactivo Timer
+    numTimer = timer.setInterval(intervalo, getData);
+    batTimer = timer.setInterval(300000, Level_Battery); // Cada 5 min actualizo nivel de bateria
+    timer.disable(numTimer);
+
+    // Eventos asociados a M5ez: SimpleTimer run y Blynk App
+    ez.addEvent(Programa_Eventos, refresco); 
 
 }
 
@@ -923,14 +1098,13 @@ void loop() {
             init_scan = start; // Para cuando se desactive el modo ahorro energia activar el timer
             getData(); // regoje y graba datos en SD cada intervalo
             break;
-        case 2: // Condiciones iniciales Blynk mientras no se active el DataLogger
+        case 2: // Busqueda sensor usado
         /*
-            if (estado_BLE){
-                Blynk.virtualWrite(V0,0); //DataLogger Parado
-                Blynk.virtualWrite(V5,1); //Escaneo inicial 30 seg
-                Blynk.virtualWrite(V7,0); //DataLogger Low Energy OFF
-                Blynk.virtualWrite(V8,0); // Espera BLE
-            }
+            Scanner_I2C();
+            #ifdef DEBUG_DATALOGGER
+                Serial.println("LOOP: sensor = " + (String)sensor);
+            #endif
+            inicio_sensor();
         */
             mode_energy = Normal; // Solo se ejecura 1 vez  mode_energy = 2
             break;
