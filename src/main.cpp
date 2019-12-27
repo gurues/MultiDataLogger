@@ -53,12 +53,11 @@ RTC_DS1307 rtc;
 // Objeto timezone
 Timezone myTZ;
 
+// Objetos de sensores permitidos:
 // Objeto BME280
-Adafruit_BME280 bme280(0x76); // I2C
-
-// Objeto BME280
-Adafruit_BME680 bme680(0x77); // I2C
-
+Adafruit_BME280 bme280; // I2C 0x76
+// Objeto BME680
+Adafruit_BME680 bme680; // I2C 0x77
 
 // Objeto para el manejo de ficheros en tarjeta SD
 File myFile;
@@ -542,8 +541,34 @@ uint16_t Programa_Eventos(){
     return refresco; // retorna el intervalo para su nueva ejecución
 }
 
+void sensor_display_Blink(const char *registros){
+
+    Blynk.virtualWrite(V1,registro_1); 
+    terminal.print("    ");
+    terminal.print(registros[0]);
+    terminal.print(" = ");
+    terminal.print(registro_1);
+    terminal.print(" ");
+    terminal.println(registros[1]);
+    terminal.flush();
+    Blynk.virtualWrite(V2,registro_2); 
+    terminal.print("    Humedad = ");
+    terminal.print(registro_2);
+    terminal.println(" %");
+    terminal.flush();
+    Blynk.virtualWrite(V3,registro_3); 
+    terminal.print("    Presion = ");
+    terminal.print(registro_3);
+    terminal.println(" mbar");
+    terminal.flush();
+    Blynk.virtualWrite(V4,registro_4);
+    terminal.print("    Altitud = ");
+    terminal.print(registro_4);
+    terminal.println(" m");
+    terminal.flush();
+}
 void sensor_BME280(char Fecha_RTC[20]){
-    char *campos[] = { "    Temperatura = ", " ºC",  "    Humedad = ", " %"};
+    const char *campos[] = { "Temperatura", "ºC", "Humedad", "%", "Presion", "mBar", "Altitud", "m"};
     //Leer temperatura.
     dtostrf(bme280.readTemperature(),2,1,registro_1);
     if (estado_BLE){
@@ -629,6 +654,7 @@ void sensor_BME280(char Fecha_RTC[20]){
 }
 
 void sensor_BME680(char Fecha_RTC[20]){
+    const char *campos[] = { "Temperatura", "ºC", "Humedad", "%", "Presion", "mBar", "Gas VOC", "ohm"};
     //Leer temperatura.
     dtostrf(bme680.readTemperature(),2,1,registro_1);
     if (estado_BLE){
@@ -660,9 +686,9 @@ void sensor_BME680(char Fecha_RTC[20]){
     dtostrf(bme680.readGas(),2,1,registro_4);
     if (estado_BLE){
         Blynk.virtualWrite(V4,registro_4);
-        terminal.print("    Altitud = ");
+        terminal.print("    Gas VOC = ");
         terminal.print(registro_4);
-        terminal.println(" m");
+        terminal.println(" ohm");
         terminal.flush();
     }
  
@@ -845,7 +871,7 @@ void inicio_sensor(){
             break;
         case BME680:
             // Inicio BME680
-            if (!bme680.begin()) {
+            if (!bme680.begin(0x77)) {
                 ez.canvas.println("No encontrado sensor");
                 ez.canvas.println("  BME680 !!!");
                 while (1);
@@ -965,12 +991,14 @@ void setup() {
     
     // Inicio I2C
     Wire.begin(PIN_SDA, PIN_SCL);
+
+    // Inicio Sensor
     Scanner_I2C();
     #ifdef DEBUG_DATALOGGER
         Serial.println("LOOP: sensor = " + (String)sensor);
     #endif
     inicio_sensor();
-    
+
     // Inicio tarjeta SD
     if (!SD.begin()) {
         ez.canvas.println("Fallo SD o SD no insertada");
@@ -1099,13 +1127,6 @@ void loop() {
             getData(); // regoje y graba datos en SD cada intervalo
             break;
         case 2: // Busqueda sensor usado
-        /*
-            Scanner_I2C();
-            #ifdef DEBUG_DATALOGGER
-                Serial.println("LOOP: sensor = " + (String)sensor);
-            #endif
-            inicio_sensor();
-        */
             mode_energy = Normal; // Solo se ejecura 1 vez  mode_energy = 2
             break;
         default: //mode_energy = 0 (Normal)
