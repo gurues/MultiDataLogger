@@ -89,6 +89,7 @@ char registro_1 [20];
 char registro_2 [20];
 char registro_3 [20];
 char registro_4 [20];
+char *campos[8];        //Variable encabezados DataLogger
 
 // Terminal de la app BLE BLYNK
 WidgetTerminal terminal (V10);
@@ -162,27 +163,35 @@ void show_Data(){
 
     ez.canvas.y(2*(ez.canvas.height()/6));
     ez.canvas.x(15);
-    ez.canvas.print("Altitud: ");
-    ez.canvas.print(registro_4);
-    ez.canvas.println(" m ");
+    ez.canvas.print(campos[0]);
+    ez.canvas.print(": ");
+    ez.canvas.print(registro_1);
+    ez.canvas.print(" ");
+    ez.canvas.println(campos[1]);
 
     ez.canvas.y(3*(ez.canvas.height()/6));
     ez.canvas.x(15);
-    ez.canvas.print("Presion: ");
-    ez.canvas.print(registro_3);
-    ez.canvas.println(" mbar ");
+    ez.canvas.print(campos[2]);
+    ez.canvas.print(": ");
+    ez.canvas.print(registro_2);
+    ez.canvas.print(" ");
+    ez.canvas.println(campos[3]);
 
     ez.canvas.y(4*(ez.canvas.height()/6));
     ez.canvas.x(15);
-    ez.canvas.print("Temperatura: ");
-    ez.canvas.print(registro_1);
-    ez.canvas.println(" *C ");
+    ez.canvas.print(campos[4]);
+    ez.canvas.print(": ");
+    ez.canvas.print(registro_3);
+    ez.canvas.print(" ");
+    ez.canvas.print(campos[5]);
     
     ez.canvas.y(5*(ez.canvas.height()/6));
     ez.canvas.x(15);
-    ez.canvas.print("Humedad: ");
-    ez.canvas.print(registro_2);
-    ez.canvas.println(" % ");
+    ez.canvas.print(campos[6]);
+    ez.canvas.print(": ");
+    ez.canvas.print(registro_4);
+    ez.canvas.print(" ");
+    ez.canvas.print(campos[7]);
 }
 
 void submenu_BLE(){
@@ -324,10 +333,26 @@ void submenu2_SD(){
                 }           
                 myFile = SD.open("/datalog.csv", FILE_WRITE); // Creado archivo datalog.csv en la SD
                 if (myFile) {
-                    myFile.println("Dia WIFI,Fecha Hora WIFI,Fecha Hora RTC,Temperatura (ºC),Humedad (%),Presion (mbar),Altitud (m)");
-                    myFile.close();
-                    ez.msgBox("Borrar SD - SI", "Datos Borrados de tarjeta SD");
-                    Inicia_Pantalla();
+                    switch(sensor) {
+                        case BME280:  // Se crea encabezado BMe280 en datalog.csv
+                            myFile.println("Dia WIFI,Fecha Hora WIFI,Fecha Hora RTC,Temperatura (ºC),Humedad (%),Presion (mbar),Altitud (m)");
+                            myFile.close();
+                            ez.msgBox("Borrar SD - SI", "Datos Borrados de tarjeta SD");
+                            Inicia_Pantalla();
+                            break;
+                        case BME680:  // Se crea encabezado BMe680 en datalog.csv
+                            myFile.println("Dia WIFI,Fecha Hora WIFI,Fecha Hora RTC,Temperatura (ºC),Humedad (%),Presion (mbar),Gas VOC (ohmios)");
+                            myFile.close();
+                            ez.msgBox("Borrar SD - SI", "Datos Borrados de tarjeta SD");
+                            Inicia_Pantalla();
+                            break;
+                        default:
+                            myFile.println("Dia WIFI,Fecha Hora WIFI,Fecha Hora RTC,Temperatura (ºC),Humedad (%),Presion (mbar),Altitud (m)");
+                            myFile.close();
+                            ez.msgBox("Borrar SD - SI", "Datos Borrados de tarjeta SD");
+                            Inicia_Pantalla();
+                            break;
+                    }
                 }
                 else{
                     ez.msgBox("Borrar SD - SI", "Error al crear archivo datalog.csv en tarjeta SD");
@@ -541,157 +566,94 @@ uint16_t Programa_Eventos(){
     return refresco; // retorna el intervalo para su nueva ejecución
 }
 
-void sensor_display_Blink(const char *registros){
-
+void sensor_display_Blink(){
+    //Actualizo Registro_1 en Blink app
     Blynk.virtualWrite(V1,registro_1); 
     terminal.print("    ");
-    terminal.print(registros[0]);
+    terminal.print(campos[0]);
     terminal.print(" = ");
     terminal.print(registro_1);
     terminal.print(" ");
-    terminal.println(registros[1]);
+    terminal.print(campos[1]);
     terminal.flush();
+    //Actualizo Registro_2 en Blink app
     Blynk.virtualWrite(V2,registro_2); 
-    terminal.print("    Humedad = ");
+    terminal.print("    ");
+    terminal.print(campos[2]);
+    terminal.print(" = ");
     terminal.print(registro_2);
-    terminal.println(" %");
+    terminal.print(" ");
+    terminal.print(campos[3]);
     terminal.flush();
-    Blynk.virtualWrite(V3,registro_3); 
-    terminal.print("    Presion = ");
+    //Actualizo Registro_3 en Blink app
+    Blynk.virtualWrite(V3,registro_3);
+    terminal.print("    ");
+    terminal.print(campos[4]);
+    terminal.print(" = ");
     terminal.print(registro_3);
-    terminal.println(" mbar");
+    terminal.print(" ");
+    terminal.print(campos[5]);
     terminal.flush();
+    //Actualizo Registro_4 en Blink app
     Blynk.virtualWrite(V4,registro_4);
-    terminal.print("    Altitud = ");
+    terminal.print("    ");
+    terminal.print(campos[6]);
+    terminal.print(" = ");
     terminal.print(registro_4);
-    terminal.println(" m");
+    terminal.print(" ");
+    terminal.print(campos[7]);
     terminal.flush();
 }
-void sensor_BME280(char Fecha_RTC[20]){
-    const char *campos[] = { "Temperatura", "ºC", "Humedad", "%", "Presion", "mBar", "Altitud", "m"};
-    //Leer temperatura.
-    dtostrf(bme280.readTemperature(),2,1,registro_1);
-    if (estado_BLE){
-        Blynk.virtualWrite(V1,registro_1); 
-        terminal.print("    Temperatura = ");
-        terminal.print(registro_1);
-        terminal.println(" ºC");
-        terminal.flush();
-    }
-    //Leer humedad.
-    dtostrf(bme280.readHumidity(),2,1,registro_2);
-    if (estado_BLE){
-        Blynk.virtualWrite(V2,registro_2); 
-        terminal.print("    Humedad = ");
-        terminal.print(registro_2);
-        terminal.println(" %");
-        terminal.flush();
-    }
-    //Leer presion.
-    dtostrf(bme280.readPressure()/ 100.0F,2,1,registro_3);
-    if (estado_BLE){
-        Blynk.virtualWrite(V3,registro_3); 
-        terminal.print("    Presion = ");
-        terminal.print(registro_3);
-        terminal.println(" mbar");
-        terminal.flush();
-    }
-    //Leer altitud.
-    dtostrf(bme280.readAltitude(SEALEVELPRESSURE_mbar),2,1,registro_4);
-    if (estado_BLE){
-        Blynk.virtualWrite(V4,registro_4);
-        terminal.print("    Altitud = ");
-        terminal.print(registro_4);
-        terminal.println(" m");
-        terminal.flush();
-    }
- 
-    // DEBUG DataLogger
-    #ifdef DEBUG_DATALOGGER
-        Serial.println("*************************************************************");
-        Serial.println("Fecha / Hora WIFI: " + myTZ.dateTime("l, d-M-y H:i:s"));
-        Serial.print("Fecha / Hora RTC: "); Serial.println(Fecha_RTC);
-        if(red_wifi) Serial.println("Red Wifi = True");
-        else Serial.println("Red Wifi = False");
-        if(estado_BLE) Serial.println("estado_BLE = True");
-        else Serial.println("estado_BLE = False");
-        if(espera_BLE) Serial.println("espera_BLE = True");
-        else Serial.println("espera_BLE = False");
-        Serial.println("Modo Energia = " + (String)mode_energy);
-        Serial.println("scan = " + (String)scan);
-        Serial.println("Temperatura = " + (String)registro_1);
-        Serial.println("Humedad = " + (String)registro_2);
-        Serial.println("Presión = " + (String)registro_3);
-        Serial.println("Altitud = " + (String)registro_4);
-    #endif
-    
-    if(save_SD){ // Control de grabación en SD
-        //Almacenamos los datos en la SD
-        myFile = SD.open("/datalog.csv", FILE_APPEND);//abrimos  el archivo y añadimos datos
-        if (myFile) { 
-            #ifdef DEBUG_DATALOGGER
-                Serial.println("Almacenando datos en Tarjeta SD .....");
-            #endif
-            myFile.print((myTZ.dateTime("l, d-M-y H:i:s")));
-            myFile.print(",");
-            myFile.print(Fecha_RTC);
-            myFile.print(",");
-            myFile.print(registro_1);
-            myFile.print(",");
-            myFile.print(registro_2);  
-            myFile.print(",");
-            myFile.print(registro_3);  
-            myFile.print(",");
-            myFile.println(registro_4);  // Salto de linea 
-            myFile.close();         //cerramos el archivo                    
-        } 
-        else {
-            #ifdef DEBUG_DATALOGGER
-                Serial.println("Error al abrir el archivo en tarjeta SD");
-            #endif
-        }
+
+void almacenar_SD(char Fecha_RTC[20]){
+    //Almacenamos los datos en la SD
+    myFile = SD.open("/datalog.csv", FILE_APPEND);//abrimos  el archivo y añadimos datos
+    if (myFile) { 
+        #ifdef DEBUG_DATALOGGER
+            Serial.println("Almacenando datos en Tarjeta SD .....");
+        #endif
+        myFile.print((myTZ.dateTime("l, d-M-y H:i:s")));
+        myFile.print(",");
+        myFile.print(Fecha_RTC);
+        myFile.print(",");
+        myFile.print(registro_1);
+        myFile.print(",");
+        myFile.print(registro_2);  
+        myFile.print(",");
+        myFile.print(registro_3);  
+        myFile.print(",");
+        myFile.println(registro_4);  // Salto de linea 
+        myFile.close();         //cerramos el archivo                    
+    } 
+    else {
+        #ifdef DEBUG_DATALOGGER
+            Serial.println("Error al abrir el archivo en tarjeta SD");
+        #endif
     }
 }
 
-void sensor_BME680(char Fecha_RTC[20]){
-    const char *campos[] = { "Temperatura", "ºC", "Humedad", "%", "Presion", "mBar", "Gas VOC", "ohm"};
+void sensor_BME280(char Fecha_RTC[20]){  
     //Leer temperatura.
-    dtostrf(bme680.readTemperature(),2,1,registro_1);
-    if (estado_BLE){
-        Blynk.virtualWrite(V1,registro_1); 
-        terminal.print("    Temperatura = ");
-        terminal.print(registro_1);
-        terminal.println(" ºC");
-        terminal.flush();
-    }
+    dtostrf(bme280.readTemperature(),2,1,registro_1);
     //Leer humedad.
-    dtostrf(bme680.readHumidity(),2,1,registro_2);
-    if (estado_BLE){
-        Blynk.virtualWrite(V2,registro_2); 
-        terminal.print("    Humedad = ");
-        terminal.print(registro_2);
-        terminal.println(" %");
-        terminal.flush();
-    }
+    dtostrf(bme280.readHumidity(),2,1,registro_2);
     //Leer presion.
-    dtostrf(bme680.readPressure()/ 100.0F,2,1,registro_3);
+    dtostrf(bme280.readPressure()/ 100.0F,2,1,registro_3);
+    //Leer altitud.
+    dtostrf(bme280.readAltitude(SEALEVELPRESSURE_mbar),2,1,registro_4);
+    //Se actulizan datos en app Blynk
     if (estado_BLE){
-        Blynk.virtualWrite(V3,registro_3); 
-        terminal.print("    Presion = ");
-        terminal.print(registro_3);
-        terminal.println(" mbar");
-        terminal.flush();
+        campos[0] = "Temperatura";
+        campos[1] = "ºC";
+        campos[2] = "Humedad";
+        campos[3] = "%";
+        campos[4] = "Presion";
+        campos[5] = "mBar";
+        campos[6] = "Altitud";
+        campos[7] = "m";
+        Blynk.setProperty(V4,"label", "                         Altidud");
+        sensor_display_Blink();
     }
-    //Leer gas VOC.uint32_t readGas(void);
-    dtostrf(bme680.readGas(),2,1,registro_4);
-    if (estado_BLE){
-        Blynk.virtualWrite(V4,registro_4);
-        terminal.print("    Gas VOC = ");
-        terminal.print(registro_4);
-        terminal.println(" ohm");
-        terminal.flush();
-    }
- 
     // DEBUG DataLogger
     #ifdef DEBUG_DATALOGGER
         Serial.println("*************************************************************");
@@ -710,33 +672,48 @@ void sensor_BME680(char Fecha_RTC[20]){
         Serial.println("Presión = " + (String)registro_3);
         Serial.println("Altitud = " + (String)registro_4);
     #endif
-    
-    if(save_SD){ // Control de grabación en SD
-        //Almacenamos los datos en la SD
-        myFile = SD.open("/datalog.csv", FILE_APPEND);//abrimos  el archivo y añadimos datos
-        if (myFile) { 
-            #ifdef DEBUG_DATALOGGER
-                Serial.println("Almacenando datos en Tarjeta SD .....");
-            #endif
-            myFile.print((myTZ.dateTime("l, d-M-y H:i:s")));
-            myFile.print(",");
-            myFile.print(Fecha_RTC);
-            myFile.print(",");
-            myFile.print(registro_1);
-            myFile.print(",");
-            myFile.print(registro_2);  
-            myFile.print(",");
-            myFile.print(registro_3);  
-            myFile.print(",");
-            myFile.println(registro_4);  // Salto de linea 
-            myFile.close();         //cerramos el archivo                    
-        } 
-        else {
-            #ifdef DEBUG_DATALOGGER
-                Serial.println("Error al abrir el archivo en tarjeta SD");
-            #endif
-        }
+}
+
+void sensor_BME680(char Fecha_RTC[20]){
+    //Leer temperatura.
+    dtostrf(bme680.readTemperature(),2,1,registro_1);
+    //Leer humedad.
+    dtostrf(bme680.readHumidity(),2,1,registro_2);
+    //Leer presion.
+    dtostrf(bme680.readPressure()/ 100.0F,2,1,registro_3);
+    //Leer gas VOC.uint32_t readGas(void);
+    dtostrf(bme680.readGas(),2,1,registro_4);
+    //Se actulizan datos en app Blynk
+    if (estado_BLE){
+        campos[0] = "Temperatura";
+        campos[1] = "ºC";
+        campos[2] = "Humedad";
+        campos[3] = "%";
+        campos[4] = "Presion";
+        campos[5] = "mBar";
+        campos[6] = "Gas VOC";
+        campos[7] = "ohm";
+        Blynk.setProperty(V4,"label", "                         Gas VOC");
+        sensor_display_Blink();
     }
+    // DEBUG DataLogger
+    #ifdef DEBUG_DATALOGGER
+        Serial.println("*************************************************************");
+        Serial.println("Fecha / Hora WIFI: " + myTZ.dateTime("l, d-M-y H:i:s"));
+        Serial.print("Fecha / Hora RTC: "); Serial.println(Fecha_RTC);
+        if(red_wifi) Serial.println("Red Wifi = True");
+        else Serial.println("Red Wifi = False");
+        if(estado_BLE) Serial.println("estado_BLE = True");
+        else Serial.println("estado_BLE = False");
+        if(espera_BLE) Serial.println("espera_BLE = True");
+        else Serial.println("espera_BLE = False");
+        Serial.println("Modo Energia = " + (String)mode_energy);
+        Serial.println("scan = " + (String)scan);
+        Serial.println("Temperatura = " + (String)registro_1);
+        Serial.println("Humedad = " + (String)registro_2);
+        Serial.println("Presión = " + (String)registro_3);
+        Serial.println("Gas VOC = " + (String)registro_4);
+    #endif
 }
 
 // Recoge los datos requeridos los muestra en pantlla y los alamacena en la tarjeta SD
@@ -762,8 +739,9 @@ void  getData(){
     //Enviar Fecha app Blynk
     if (estado_BLE){
         Blynk.virtualWrite(V9,buffer_Fecha); 
+        terminal.flush();
         terminal.print("Fecha / Hora RTC: ");         
-        terminal.println(buffer_Fecha);
+        terminal.print(buffer_Fecha);
         terminal.flush();
     }   
     
@@ -771,12 +749,18 @@ void  getData(){
     switch(sensor) {
         case BME280:  
             sensor_BME280(buffer_Fecha);
+            if(save_SD){ // Control de grabación en SD
+                almacenar_SD(buffer_Fecha);
+            }
             break;
         case BME680:  
             sensor_BME680(buffer_Fecha);
+            if(save_SD){ // Control de grabación en SD
+                almacenar_SD(buffer_Fecha);
+            }
             break;
     }
-
+    
     if ((estado_BLE)&&(espera_BLE)){
         delay(2500); // retardo para escribir en el terminal
     }
