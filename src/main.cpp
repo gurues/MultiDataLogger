@@ -11,6 +11,7 @@
 #include <ezTime.h>
 #include <M5ez.h>
 #include <Wire.h>     
+#include <Temperature_LM75_Derived.h>
 #include <Adafruit_Sensor.h>
 #include <Adafruit_BME280.h>
 #include "Adafruit_BME680.h"
@@ -54,10 +55,28 @@ RTC_DS1307 rtc;
 Timezone myTZ;
 
 // Objetos de sensores permitidos:
+
+// Objeto BH1750
+//Adafruit_BME280 BH1750; // I2C 0x23
+
+// Objeto VEML6075
+//Adafruit_BME280 VEML6075; // I2C 0x38
+
+// Objeto GY2541
+//Adafruit_BME280 GY2541; // I2C 0x39
+
+// Objeto SHT21
+//Adafruit_BME280 SHT21; // I2C 0x40
+
+// Objeto CJMCU-75 -> LM75
+Generic_LM75 lm75; // I2C 0x48
 // Objeto BME280
 Adafruit_BME280 bme280; // I2C 0x76
 // Objeto BME680
 Adafruit_BME680 bme680; // I2C 0x77
+// Objeto AM2320
+//Adafruit_BME680 am2320; // I2C 0x5C
+
 
 // Objeto para el manejo de ficheros en tarjeta SD
 File myFile;
@@ -70,7 +89,7 @@ enum estado_registro{
     stop, start, reinicio
 };
 enum Sensor_Registro{
-    ninguno, BME280, BME680
+    ninguno, BME280, BME680, LM75, SHT21, BH1750, VEML6075, GY2541, AM2320
 };
 RTC_DATA_ATTR int mode_energy = Arranque; // Modos de energia -> 0: Normal 1: Ahorro Energia Activado 2: Arranque 1ª vez Normal
 RTC_DATA_ATTR uint32_t intervalo = 30000; // intervalo muestreo por defecto 30 seg.
@@ -152,46 +171,51 @@ void getTimeScan(){
 // Muestras los datos registrados en pantalla y actualiza porcentaje de bateria
 void show_Data(){
     Level_Battery();
-
     ez.canvas.clear();
     ez.canvas.font(&FreeMonoBold12pt7b);
-
     ez.canvas.y(ez.canvas.height()/6);
     ez.canvas.x(50);
     ez.canvas.print("Escaneo");
     ez.canvas.print(scan);
-
-    ez.canvas.y(2*(ez.canvas.height()/6));
-    ez.canvas.x(15);
-    ez.canvas.print(campos[0]);
-    ez.canvas.print(": ");
-    ez.canvas.print(registro_1);
-    ez.canvas.print(" ");
-    ez.canvas.println(campos[1]);
-
-    ez.canvas.y(3*(ez.canvas.height()/6));
-    ez.canvas.x(15);
-    ez.canvas.print(campos[2]);
-    ez.canvas.print(": ");
-    ez.canvas.print(registro_2);
-    ez.canvas.print(" ");
-    ez.canvas.println(campos[3]);
-
-    ez.canvas.y(4*(ez.canvas.height()/6));
-    ez.canvas.x(15);
-    ez.canvas.print(campos[4]);
-    ez.canvas.print(": ");
-    ez.canvas.print(registro_3);
-    ez.canvas.print(" ");
-    ez.canvas.print(campos[5]);
-    
-    ez.canvas.y(5*(ez.canvas.height()/6));
-    ez.canvas.x(15);
-    ez.canvas.print(campos[6]);
-    ez.canvas.print(": ");
-    ez.canvas.print(registro_4);
-    ez.canvas.print(" ");
-    ez.canvas.print(campos[7]);
+    // sensor de 1 registro: LM75 / BH1750 / VEML6075 / GY2541
+    if ((sensor==BME280)||(sensor==BME680)||(sensor==AM2320)||(sensor==SHT21)||
+        (sensor==LM75)||(sensor==BH1750)||(sensor==VEML6075)||(sensor==GY2541)){
+        ez.canvas.y(2*(ez.canvas.height()/6));
+        ez.canvas.x(15);
+        ez.canvas.print(campos[0]);
+        ez.canvas.print(": ");
+        ez.canvas.print(registro_1);
+        ez.canvas.print(" ");
+        ez.canvas.println(campos[1]);
+    }
+    //  sensor de 2 registro: AM2320/ SHT21
+    if ((sensor==BME280)||(sensor==BME680)||(sensor==AM2320)||(sensor==SHT21)){
+        ez.canvas.y(3*(ez.canvas.height()/6));
+        ez.canvas.x(15);
+        ez.canvas.print(campos[2]);
+        ez.canvas.print(": ");
+        ez.canvas.print(registro_2);
+        ez.canvas.print(" ");
+        ez.canvas.println(campos[3]);
+    }
+    //  sensor de 4 registro: BME280 / BME680
+    if ((sensor==BME280)||(sensor==BME680)){
+        ez.canvas.y(4*(ez.canvas.height()/6));
+        ez.canvas.x(15);
+        ez.canvas.print(campos[4]);
+        ez.canvas.print(": ");
+        ez.canvas.print(registro_3);
+        ez.canvas.print(" ");
+        ez.canvas.print(campos[5]);
+        
+        ez.canvas.y(5*(ez.canvas.height()/6));
+        ez.canvas.x(15);
+        ez.canvas.print(campos[6]);
+        ez.canvas.print(": ");
+        ez.canvas.print(registro_4);
+        ez.canvas.print(" ");
+        ez.canvas.print(campos[7]);
+    }
 }
 
 void submenu_BLE(){
@@ -334,20 +358,50 @@ void submenu2_SD(){
                 myFile = SD.open("/datalog.csv", FILE_WRITE); // Creado archivo datalog.csv en la SD
                 if (myFile) {
                     switch(sensor) {
-                        case BME280:  // Se crea encabezado BMe280 en datalog.csv
+                        case BME280:  // Se crea encabezado BME280 en datalog.csv
                             myFile.println("Dia WIFI,Fecha Hora WIFI,Fecha Hora RTC,Temperatura (ºC),Humedad (%),Presion (mbar),Altitud (m)");
                             myFile.close();
                             ez.msgBox("Borrar SD - SI", "Datos Borrados de tarjeta SD");
                             Inicia_Pantalla();
                             break;
-                        case BME680:  // Se crea encabezado BMe680 en datalog.csv
+                        case BME680:  // Se crea encabezado BME680 en datalog.csv
                             myFile.println("Dia WIFI,Fecha Hora WIFI,Fecha Hora RTC,Temperatura (ºC),Humedad (%),Presion (mbar),Gas VOC (ohmios)");
                             myFile.close();
                             ez.msgBox("Borrar SD - SI", "Datos Borrados de tarjeta SD");
                             Inicia_Pantalla();
                             break;
-                        default:
-                            myFile.println("Dia WIFI,Fecha Hora WIFI,Fecha Hora RTC,Temperatura (ºC),Humedad (%),Presion (mbar),Altitud (m)");
+                        case LM75:  // Se crea encabezado LM75 en datalog.csv
+                            myFile.println("Dia WIFI,Fecha Hora WIFI,Fecha Hora RTC,Temperatura (ºC)");
+                            myFile.close();
+                            ez.msgBox("Borrar SD - SI", "Datos Borrados de tarjeta SD");
+                            Inicia_Pantalla();
+                            break;
+                        case BH1750:  // Se crea encabezado BH1750 en datalog.csv
+                            myFile.println("Dia WIFI,Fecha Hora WIFI,Fecha Hora RTC,Nivel Luz (lux)");
+                            myFile.close();
+                            ez.msgBox("Borrar SD - SI", "Datos Borrados de tarjeta SD");
+                            Inicia_Pantalla();
+                            break;
+                        case VEML6075:  // Se crea encabezado BMe680 en datalog.csv
+                            myFile.println("Dia WIFI,Fecha Hora WIFI,Fecha Hora RTC,indice UV");
+                            myFile.close();
+                            ez.msgBox("Borrar SD - SI", "Datos Borrados de tarjeta SD");
+                            Inicia_Pantalla();
+                            break;
+                        case GY2541:  // Se crea encabezado BMe680 en datalog.csv
+                            myFile.println("Dia WIFI,Fecha Hora WIFI,Fecha Hora RTC,Nivel Luz (lux)");
+                            myFile.close();
+                            ez.msgBox("Borrar SD - SI", "Datos Borrados de tarjeta SD");
+                            Inicia_Pantalla();
+                            break;
+                        case SHT21:
+                            myFile.println("Dia WIFI,Fecha Hora WIFI,Fecha Hora RTC,Temperatura (ºC),Humedad (%)");
+                            myFile.close();
+                            ez.msgBox("Borrar SD - SI", "Datos Borrados de tarjeta SD");
+                            Inicia_Pantalla();
+                            break;
+                        case AM2320:
+                            myFile.println("Dia WIFI,Fecha Hora WIFI,Fecha Hora RTC,Temperatura (ºC),Humedad (%)");
                             myFile.close();
                             ez.msgBox("Borrar SD - SI", "Datos Borrados de tarjeta SD");
                             Inicia_Pantalla();
@@ -567,42 +621,52 @@ uint16_t Programa_Eventos(){
 }
 
 void sensor_display_Blink(){
-    //Actualizo Registro_1 en Blink app
-    Blynk.virtualWrite(V1,registro_1); 
-    terminal.print("    ");
-    terminal.print(campos[0]);
-    terminal.print(" = ");
-    terminal.print(registro_1);
-    terminal.print(" ");
-    terminal.print(campos[1]);
-    terminal.flush();
-    //Actualizo Registro_2 en Blink app
-    Blynk.virtualWrite(V2,registro_2); 
-    terminal.print("    ");
-    terminal.print(campos[2]);
-    terminal.print(" = ");
-    terminal.print(registro_2);
-    terminal.print(" ");
-    terminal.print(campos[3]);
-    terminal.flush();
-    //Actualizo Registro_3 en Blink app
-    Blynk.virtualWrite(V3,registro_3);
-    terminal.print("    ");
-    terminal.print(campos[4]);
-    terminal.print(" = ");
-    terminal.print(registro_3);
-    terminal.print(" ");
-    terminal.print(campos[5]);
-    terminal.flush();
-    //Actualizo Registro_4 en Blink app
-    Blynk.virtualWrite(V4,registro_4);
-    terminal.print("    ");
-    terminal.print(campos[6]);
-    terminal.print(" = ");
-    terminal.print(registro_4);
-    terminal.print(" ");
-    terminal.print(campos[7]);
-    terminal.flush();
+    // sensor de 1 registro: LM75 / BH1750 / VEML6075 / GY2541
+    if ((sensor==BME280)||(sensor==BME680)||(sensor==AM2320)||(sensor==SHT21)||
+        (sensor==LM75)||(sensor==BH1750)||(sensor==VEML6075)||(sensor==GY2541)){
+        //Actualizo Registro_1 en Blink app
+        Blynk.virtualWrite(V1,registro_1); 
+        terminal.print("    ");
+        terminal.print(campos[0]);
+        terminal.print(" = ");
+        terminal.print(registro_1);
+        terminal.print(" ");
+        terminal.print(campos[1]);
+        terminal.flush();
+    }
+    //  sensor de 2 registro: AM2320/ SHT21
+    if ((sensor==BME280)||(sensor==BME680)||(sensor==AM2320)||(sensor==SHT21)){
+        //Actualizo Registro_2 en Blink app
+        Blynk.virtualWrite(V2,registro_2); 
+        terminal.print("    ");
+        terminal.print(campos[2]);
+        terminal.print(" = ");
+        terminal.print(registro_2);
+        terminal.print(" ");
+        terminal.print(campos[3]);
+        terminal.flush();
+    }
+    //  sensor de 4 registro: BME280 / BME680
+    if ((sensor==BME280)||(sensor==BME680)){
+        //Actualizo Registro_3 en Blink app
+        Blynk.virtualWrite(V3,registro_3);
+        terminal.print("    ");
+        terminal.print(campos[4]);
+        terminal.print(" = ");
+        terminal.print(registro_3);
+        terminal.print(" ");
+        terminal.print(campos[5]);
+        terminal.flush();
+        //Actualizo Registro_4 en Blink app
+        Blynk.virtualWrite(V4,registro_4);
+        terminal.print("    ");
+        terminal.print(campos[6]);
+        terminal.print(" = ");
+        terminal.print(registro_4);
+        terminal.print(" ");
+        terminal.print(campos[7]);
+        terminal.flush();
+    }
 }
 
 void almacenar_SD(char Fecha_RTC[20]){
@@ -617,19 +681,60 @@ void almacenar_SD(char Fecha_RTC[20]){
         myFile.print(Fecha_RTC);
         myFile.print(",");
         myFile.print(registro_1);
-        myFile.print(",");
-        myFile.print(registro_2);  
-        myFile.print(",");
-        myFile.print(registro_3);  
-        myFile.print(",");
-        myFile.println(registro_4);  // Salto de linea 
-        myFile.close();         //cerramos el archivo                    
+        if ((sensor==BME280)||(sensor==BME680)||(sensor==AM2320)||(sensor==SHT21)){ // sensor de 2 registros
+            myFile.print(",");
+            myFile.print(registro_2);  
+        }
+        if ((sensor==BME280)||(sensor==BME680)){ // sensor de 4 registros
+            myFile.print(",");
+            myFile.print(registro_3);  
+            myFile.print(",");
+            myFile.print(registro_4);  
+        }
+        myFile.println("");  // Salto de linea
+        myFile.close();    //cerramos el archivo                    
     } 
     else {
         #ifdef DEBUG_DATALOGGER
             Serial.println("Error al abrir el archivo en tarjeta SD");
         #endif
     }
+}
+
+void sensor_LM75(char Fecha_RTC[20]){
+    //Leer temperatura.
+    dtostrf(lm75.readTemperatureC(),2,1,registro_1);
+    //Registro 2.
+    dtostrf(0.0,2,1,registro_2);
+    //Registro 3.
+    dtostrf(0.0,2,1,registro_3);
+    //Registro 4.
+    dtostrf(0.0,2,1,registro_4);
+    //Se actulizan datos en app Blynk
+    if (estado_BLE){
+        Blynk.setProperty(V2,"label", " ");
+        Blynk.setProperty(V3,"label", " ");
+        Blynk.setProperty(V4,"label", " ");
+        sensor_display_Blink();
+    }
+    // DEBUG DataLogger
+    #ifdef DEBUG_DATALOGGER
+        Serial.println("*************************************************************");
+        Serial.println("Fecha / Hora WIFI: " + myTZ.dateTime("l, d-M-y H:i:s"));
+        Serial.print("Fecha / Hora RTC: "); Serial.println(Fecha_RTC);
+        if(red_wifi) Serial.println("Red Wifi = True");
+        else Serial.println("Red Wifi = False");
+        if(estado_BLE) Serial.println("estado_BLE = True");
+        else Serial.println("estado_BLE = False");
+        if(espera_BLE) Serial.println("espera_BLE = True");
+        else Serial.println("espera_BLE = False");
+        Serial.println("Modo Energia = " + (String)mode_energy);
+        Serial.println("scan = " + scan);
+        Serial.println("Temperatura = " + (String)registro_1);
+        Serial.println("Registro 2 = " + (String)registro_2);
+        Serial.println("Registro 3 = " + (String)registro_3);
+        Serial.println("Registro 4 = " + (String)registro_4);
+    #endif
 }
 
 void sensor_BME280(char Fecha_RTC[20]){  
@@ -643,14 +748,9 @@ void sensor_BME280(char Fecha_RTC[20]){
     dtostrf(bme280.readAltitude(SEALEVELPRESSURE_mbar),2,1,registro_4);
     //Se actulizan datos en app Blynk
     if (estado_BLE){
-        campos[0] = "Temperatura";
-        campos[1] = "ºC";
-        campos[2] = "Humedad";
-        campos[3] = "%";
-        campos[4] = "Presion";
-        campos[5] = "mBar";
-        campos[6] = "Altitud";
-        campos[7] = "m";
+        Blynk.setProperty(V1,"label", "                         Temperatura");
+        Blynk.setProperty(V2,"label", "                         Humedad");
+        Blynk.setProperty(V3,"label", "                         Presion");
         Blynk.setProperty(V4,"label", "                         Altidud");
         sensor_display_Blink();
     }
@@ -666,7 +766,7 @@ void sensor_BME280(char Fecha_RTC[20]){
         if(espera_BLE) Serial.println("espera_BLE = True");
         else Serial.println("espera_BLE = False");
         Serial.println("Modo Energia = " + (String)mode_energy);
-        Serial.println("scan = " + (String)scan);
+        Serial.println("scan = " + scan);
         Serial.println("Temperatura = " + (String)registro_1);
         Serial.println("Humedad = " + (String)registro_2);
         Serial.println("Presión = " + (String)registro_3);
@@ -685,14 +785,9 @@ void sensor_BME680(char Fecha_RTC[20]){
     dtostrf(bme680.readGas(),2,1,registro_4);
     //Se actulizan datos en app Blynk
     if (estado_BLE){
-        campos[0] = "Temperatura";
-        campos[1] = "ºC";
-        campos[2] = "Humedad";
-        campos[3] = "%";
-        campos[4] = "Presion";
-        campos[5] = "mBar";
-        campos[6] = "Gas VOC";
-        campos[7] = "ohm";
+        Blynk.setProperty(V1,"label", "                         Temperatura");
+        Blynk.setProperty(V2,"label", "                         Humedad");
+        Blynk.setProperty(V3,"label", "                         Presion");
         Blynk.setProperty(V4,"label", "                         Gas VOC");
         sensor_display_Blink();
     }
@@ -708,7 +803,7 @@ void sensor_BME680(char Fecha_RTC[20]){
         if(espera_BLE) Serial.println("espera_BLE = True");
         else Serial.println("espera_BLE = False");
         Serial.println("Modo Energia = " + (String)mode_energy);
-        Serial.println("scan = " + (String)scan);
+        Serial.println("scan = " + scan);
         Serial.println("Temperatura = " + (String)registro_1);
         Serial.println("Humedad = " + (String)registro_2);
         Serial.println("Presión = " + (String)registro_3);
@@ -747,6 +842,12 @@ void  getData(){
     
     //Adquirimos y registramos datos del sensor
     switch(sensor) {
+        case LM75:  
+            sensor_LM75(buffer_Fecha);
+            if(save_SD){ // Control de grabación en SD
+                almacenar_SD(buffer_Fecha);
+            }
+            break;
         case BME280:  
             sensor_BME280(buffer_Fecha);
             if(save_SD){ // Control de grabación en SD
@@ -825,11 +926,41 @@ void Scanner_I2C(){
         }
     }
     switch(direccion_I2C){
+        case 72://0x48
+            sensor = LM75;
+            //Se actulizan datos del encabezado
+            campos[0] = "Temperatura";
+            campos[1] = "ºC";
+            campos[2] = "-";
+            campos[3] = "-";
+            campos[4] = "-";
+            campos[5] = "-";
+            campos[6] = "-";
+            campos[7] = "-";
+            break;
         case 118://0x76
             sensor = BME280;
+            //Se actulizan datos datos del encabezado
+            campos[0] = "Temperatura";
+            campos[1] = "ºC";
+            campos[2] = "Humedad";
+            campos[3] = "%";
+            campos[4] = "Presion";
+            campos[5] = "mBar";
+            campos[6] = "Altitud";
+            campos[7] = "m";
             break;
         case 119://0x77
             sensor = BME680;
+            //Se actulizan datos datos del encabezado
+            campos[0] = "Temperatura";
+            campos[1] = "ºC";
+            campos[2] = "Humedad";
+            campos[3] = "%";
+            campos[4] = "Presion";
+            campos[5] = "mBar";
+            campos[6] = "Gas VOC";
+            campos[7] = "ohm";
             break;
         default:
             sensor = ninguno;
@@ -845,6 +976,14 @@ void Scanner_I2C(){
 
 void inicio_sensor(){
     switch(sensor) {
+        case LM75:
+            // Inicio LM75
+            //if (!lm75.begin(0x30)) {
+              //  ez.canvas.println("No encontrado sensor");
+              //  ez.canvas.println("  LM75 !!!");
+              //  while (1);
+           // }
+            break;
         case BME280:
             // Inicio BME280
             if (!bme280.begin(0x76)) {
