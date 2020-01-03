@@ -1,3 +1,25 @@
+/*
+ ------------------------------------------------------------------------------------------------------------
+ -----------                               MULTIDATA LOGGER                                ------------------
+ ------------------------------------------------------------------------------------------------------------ 
+
+ En este proyecto se realiza un DataLogger que registra los parámetros del sensor conectado al bus I2C del 
+ M5STACK (ESP32). Un RTC DS3231 proporciona la fecha/hora del registro si no configura o dispone de red WIFI.
+ El DataLogger es capaz de detectar el sensor conectado al bus I2C y predisponerse a registrar sus parámetros.
+
+ Sensores soportados: 
+ BME280 (temperatura, humedad, presión y altitud) - BME680 (temperatura, humedad, presión y Gas VOC)
+ LM75 (temperatura) - SHT21 (temperatura y humedad) - BH1750 (nivel luminosidad) - VEML6075 (indice UV)
+ TSL2541 (nivel luminosidad) - AM2320 (temperatura y humedad)
+ 
+ Para más información lee el archivo Readme.md
+
+ Realizado por gurues@2019-2020
+
+ ------------------------------------------------------------------------------------------------------------
+
+*/
+
 //Descomenta para DEBUG Blynk por puerto serie
 #define BLYNK_DEBUG
 #define BLYNK_PRINT Serial
@@ -71,21 +93,22 @@ Adafruit_TSL2561_Unified tsl2541 = Adafruit_TSL2561_Unified(TSL2561_ADDR_FLOAT, 
 Adafruit_HTU21DF sht21 = Adafruit_HTU21DF(); // I2C 0x40
 // Objeto CJMCU-75 -> LM75
 Generic_LM75 lm75; // I2C 0x48
+// Objeto AM2320
+Adafruit_AM2320 am2320 = Adafruit_AM2320(); // I2C 0x5C
 // Objeto BME280
 Adafruit_BME280 bme280; // I2C 0x76
 // Objeto BME680
 Adafruit_BME680 bme680; // I2C 0x77
-// Objeto AM2320
-Adafruit_AM2320 am2320 = Adafruit_AM2320(); // I2C 0x5C
+
 
 // Objeto para el manejo de ficheros en tarjeta SD
 File myFile;
 
 // Variables de estado del Proyecto
-enum estado_energy{     // Modos de energia del DataLogger
+enum Estado_Energy{     // Modos de energia del DataLogger
     Normal, Ahorro, Arranque
 };
-enum estado_registro{   // Modos de registro
+enum Estado_Registro{   // Modos de registro
     stop, start, run
 };
 enum Sensor_Registro{   // Sensores permitidos
@@ -93,25 +116,30 @@ enum Sensor_Registro{   // Sensores permitidos
 };
 
 // Variables de contol del Proyecto
-RTC_DATA_ATTR int mode_energy = Arranque;       // Modos de energia -> 0: Normal 1: Ahorro Energia Activado 2: Arranque 1ª vez Normal
-RTC_DATA_ATTR int init_scan = run;              // Modos de registro de datos -> start/stop/run
-RTC_DATA_ATTR Sensor_Registro sensor = ninguno; // Sensor I2C a registrar
-RTC_DATA_ATTR uint32_t intervalo = 30000;       // Intervalo muestreo por defecto 30 seg.
-RTC_DATA_ATTR bool red_wifi = false;            // Variable de control red wifi -> false: No conectado true: conectado.
-RTC_DATA_ATTR bool save_SD = true;              // Variable de control SD save_SD -> false: No graba datos en SD true: Graba datos en SD
-RTC_DATA_ATTR bool estado_BLE = false;          // Variable de control Bluetooth BLE -> false: No conectado true: conectado
-RTC_DATA_ATTR bool espera_BLE = false;          // Variable de control espera conexión Bluetooth BLE -> false: No espera true: espera
-bool menu = false;                              // Variable de control para no refrescar pantalla si estoy en un menu
-int battery;                                    // Nivel de bateria 100% - 75% - 50% - 25%
-String Detectado_sensor;                        // Sensor I2C a registrar mmostrado en pantalla
-String scan =" 30 seg";                         // Intervalo muestreo por defecto 30 seg mmostrado en pantalla
+RTC_DATA_ATTR Estado_Energy mode_energy = Arranque; // Modos de energia -> 0: Normal 1: Ahorro Energia Activado 2: Arranque 1ª vez Normal
+RTC_DATA_ATTR Estado_Registro init_scan = run;      // Modos de registro de datos -> start/stop/run
+RTC_DATA_ATTR Sensor_Registro sensor = ninguno;     // Sensor I2C a registrar
+RTC_DATA_ATTR uint32_t intervalo = 30000;           // Intervalo muestreo por defecto 30 seg.
+RTC_DATA_ATTR bool red_wifi = false;                // Variable de control red wifi -> false: No conectado true: conectado.
+RTC_DATA_ATTR bool save_SD = true;                  // Variable de control SD save_SD -> false: No graba datos en SD true: Graba datos en SD
+RTC_DATA_ATTR bool estado_BLE = false;              // Variable de control Bluetooth BLE -> false: No conectado true: conectado
+RTC_DATA_ATTR bool espera_BLE = false;              // Variable de control espera conexión Bluetooth BLE -> false: No espera true: espera
+bool menu = false;                                  // Variable de control para no refrescar pantalla si estoy en un menu
+int battery;                                        // Nivel de bateria 100% - 75% - 50% - 25%
 
 //variables a registrar del sensor
 char registro_1 [20];
 char registro_2 [20];
 char registro_3 [20];
 char registro_4 [20];
-char const *campos[8];                          //Variable encabezados DataLogger
+                         
+//Variable control encabezados DataLogger
+////{campos[0], campos[1],campos[2], campos[3],campos[4], campos[5],
+//campos[6], campos[7],campos[8], campos[9]}
+//{encabezado reg_1, unidad reg_1,encabezado reg_2, unidad reg_2,encabezado reg_3, unidad reg_3,
+// encabezado reg_4, unidad reg_4,sensor detectado, escaneo}
+
+char const *campos[10]; 
 
 // Terminal de la app BLE BLYNK
 WidgetTerminal terminal (V10);
@@ -155,19 +183,19 @@ void write_Pantalla(String text){
 // Actualiza el intervalo de escaneo para mostralo por pantalla
 void getTimeScan(){
     if (intervalo == 30000){
-        scan =" 30 seg";
+        campos [9] =" 30 seg";
     }
     if (intervalo == 60000){
-        scan =" 60 seg";
+        campos [9] =" 60 seg";
     }
     if (intervalo == 300000){
-        scan =" 5 min";
+        campos [9] =" 5 min";
     }
     if (intervalo == 900000){
-        scan =" 15 min";
+        campos [9] =" 15 min";
     }      
     if (intervalo == 1800000){
-        scan =" 30 min";
+        campos [9] =" 30 min";
     }
 }
 
@@ -179,7 +207,7 @@ void show_Data(){
     ez.canvas.y(ez.canvas.height()/6);
     ez.canvas.x(50);
     ez.canvas.print("Escaneo");
-    ez.canvas.print(scan);
+    ez.canvas.print(campos [9]);
     // sensor de 1 registro: LM75 / lux_BH1750 / VEML6075 / TSL2541
     if ((sensor==BME280)||(sensor==BME680)||(sensor==AM2320)||(sensor==SHT21)||
         (sensor==LM75)||(sensor==lux_BH1750)||(sensor==VEML6075)||(sensor==TSL2541)){
@@ -267,7 +295,7 @@ void submenu1_SCAN(){
             }
             else{
                 intervalo = 30000;
-                scan =" 30 seg";
+                campos [9] =" 30 seg";
                 if (estado_BLE)
                     Blynk.virtualWrite(V5,1); 
                 Inicia_Pantalla();
@@ -276,13 +304,13 @@ void submenu1_SCAN(){
             break;
         case 2: // 60 seg
             if (timer.isEnabled(numTimer)){
-                ez.msgBox("Configura intervalo de escaneo", "Antes, STOP DataLogger");
+                ez.msgBox("Configura intervalo de ecampos escaneo", "Antes, STOP DataLogger");
                 Inicia_Pantalla();
                 show_Data();
             }
             else{
                 intervalo = 60000;
-                scan =" 60 seg";
+                campos [9] =" 60 seg";
                 if (estado_BLE)
                     Blynk.virtualWrite(V5,2);
                 Inicia_Pantalla();
@@ -297,7 +325,7 @@ void submenu1_SCAN(){
             }
             else{
                 intervalo = 300000;
-                scan =" 5 min";
+                campos [9] =" 5 min";
                 if (estado_BLE)
                     Blynk.virtualWrite(V5,3);
                 Inicia_Pantalla();
@@ -312,7 +340,7 @@ void submenu1_SCAN(){
             }
             else{
                 intervalo = 900000;
-                scan =" 15 min";
+                campos [9] =" 15 min";
                 if (estado_BLE)
                     Blynk.virtualWrite(V5,4);
                 Inicia_Pantalla();
@@ -327,7 +355,7 @@ void submenu1_SCAN(){
             }
             else{
                 intervalo = 1800000;
-                scan =" 30 min";
+                campos [9] =" 30 min";
                 if (estado_BLE)
                     Blynk.virtualWrite(V5,5);
                 Inicia_Pantalla();
@@ -349,49 +377,49 @@ void borrado_encabezado_SD(){
     if (myFile) {
         switch(sensor) {
             case BME280:  // Se crea encabezado BME280 en datalog.csv
-                myFile.println("Dia WIFI,Fecha Hora WIFI,Fecha Hora RTC,Temperatura (ºC),Humedad (%),Presion (mbar),Altitud (m)");
+                myFile.println("Dia WIFI,Fecha Hora WIFI,Fecha Hora RTC,Temperatura (ºC),Humedad (%),Presion (mbar),Altitud (m), Sensor BME280");
                 myFile.close();
                 ez.msgBox("Borrar SD - SI", "Datos Borrados de tarjeta SD");
                 Inicia_Pantalla();
                 break;
             case BME680:  // Se crea encabezado BME680 en datalog.csv
-                myFile.println("Dia WIFI,Fecha Hora WIFI,Fecha Hora RTC,Temperatura (ºC),Humedad (%),Presion (mbar),Gas VOC (ohmios)");
+                myFile.println("Dia WIFI,Fecha Hora WIFI,Fecha Hora RTC,Temperatura (ºC),Humedad (%),Presion (mbar),Gas VOC (ohmios), Sensor BME680");
                 myFile.close();
                 ez.msgBox("Borrar SD - SI", "Datos Borrados de tarjeta SD");
                 Inicia_Pantalla();
                 break;
             case LM75:  // Se crea encabezado LM75 en datalog.csv
-                myFile.println("Dia WIFI,Fecha Hora WIFI,Fecha Hora RTC,Temperatura (ºC)");
+                myFile.println("Dia WIFI,Fecha Hora WIFI,Fecha Hora RTC,Temperatura (ºC), Sensor LM75");
                 myFile.close();
                 ez.msgBox("Borrar SD - SI", "Datos Borrados de tarjeta SD");
                 Inicia_Pantalla();
                 break;
             case lux_BH1750:  // Se crea encabezado lux_BH1750 en datalog.csv
-                myFile.println("Dia WIFI,Fecha Hora WIFI,Fecha Hora RTC,Nivel Luminosidad (lux)");
+                myFile.println("Dia WIFI,Fecha Hora WIFI,Fecha Hora RTC,Nivel Luminosidad (lux), Sensor BH1750");
                 myFile.close();
                 ez.msgBox("Borrar SD - SI", "Datos Borrados de tarjeta SD");
                 Inicia_Pantalla();
                 break;
             case VEML6075:  // Se crea encabezado BMe680 en datalog.csv
-                myFile.println("Dia WIFI,Fecha Hora WIFI,Fecha Hora RTC,indice UV");
+                myFile.println("Dia WIFI,Fecha Hora WIFI,Fecha Hora RTC,indice UV,, Sensor VEML6075");
                 myFile.close();
                 ez.msgBox("Borrar SD - SI", "Datos Borrados de tarjeta SD");
                 Inicia_Pantalla();
                 break;
             case TSL2541:  // Se crea encabezado BMe680 en datalog.csv
-                myFile.println("Dia WIFI,Fecha Hora WIFI,Fecha Hora RTC,Nivel Luminosidad (lux)");
+                myFile.println("Dia WIFI,Fecha Hora WIFI,Fecha Hora RTC,Nivel Luminosidad (lux), Sensor TSL2541");
                 myFile.close();
                 ez.msgBox("Borrar SD - SI", "Datos Borrados de tarjeta SD");
                 Inicia_Pantalla();
                 break;
             case SHT21:
-                myFile.println("Dia WIFI,Fecha Hora WIFI,Fecha Hora RTC,Temperatura (ºC),Humedad (%)");
+                myFile.println("Dia WIFI,Fecha Hora WIFI,Fecha Hora RTC,Temperatura (ºC),Humedad (%), Sensor SHT21");
                 myFile.close();
                 ez.msgBox("Borrar SD - SI", "Datos Borrados de tarjeta SD");
                 Inicia_Pantalla();
                 break;
             case AM2320:
-                myFile.println("Dia WIFI,Fecha Hora WIFI,Fecha Hora RTC,Temperatura (ºC),Humedad (%)");
+                myFile.println("Dia WIFI,Fecha Hora WIFI,Fecha Hora RTC,Temperatura (ºC),Humedad (%), Sensor AM2320");
                 myFile.close();
                 ez.msgBox("Borrar SD - SI", "Datos Borrados de tarjeta SD");
                 Inicia_Pantalla();
@@ -577,7 +605,7 @@ void scanButton() {
     if (btn == "SETUP") Config_DataLogger();
 
     if ((btn == "START")&&(!(timer.isEnabled(numTimer)))){
-        write_Pantalla("Iniciado DataLogger " + Detectado_sensor + "       escaneando cada" + scan);
+        write_Pantalla("Iniciado DataLogger " + (String)campos [8] + "       escaneando cada" + (String)campos [9]);
         init_scan = start;
         mode_energy = Normal;
         if (estado_BLE){
@@ -587,7 +615,7 @@ void scanButton() {
     } 
 
     if ((btn == "STOP")&&(timer.isEnabled(numTimer))){
-        write_Pantalla("Parado DataLogger " + Detectado_sensor);   
+        write_Pantalla("Parado DataLogger " + (String)campos [8]);   
         init_scan = stop;
         mode_energy = Normal;
         if (estado_BLE)
@@ -615,11 +643,11 @@ void scanButton() {
     if (btn == "Yes") {
         // Borrado archivo datalog.csv y actulización encabezados de la SD
         borrado_encabezado_SD();
-        write_Pantalla("Tarjeta SD preparada para           sensor " + Detectado_sensor); 
+        write_Pantalla("Tarjeta SD preparada para           sensor " + (String)campos [8]); 
     }
     if (btn == "No") {
         // Borrado archivo datalog.csv y actulización encabezados de la SD
-        write_Pantalla("Tarjeta SD preparada para           sensor " + Detectado_sensor); 
+        write_Pantalla("Tarjeta SD preparada para           sensor " + (String)campos [8]); 
     }
 }
 
@@ -716,6 +744,27 @@ void almacenar_SD(char Fecha_RTC[20]){
 ///////////////                FUNCIONES SENSORES                 /////////////////////////////////////////                                 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////
 
+#ifdef DEBUG_DATALOGGER
+    void debug_Sensor(char Fecha_RTC[20]){
+    // DEBUG DataLogger
+        Serial.println("*************************************************************");
+        Serial.println("Fecha / Hora WIFI: " + myTZ.dateTime("l, d-M-y H:i:s"));
+        Serial.print("Fecha / Hora RTC: "); Serial.println(Fecha_RTC);
+        if(red_wifi) Serial.println("Red Wifi = True");
+        else Serial.println("Red Wifi = False");
+        if(estado_BLE) Serial.println("estado_BLE = True");
+        else Serial.println("estado_BLE = False");
+        if(espera_BLE) Serial.println("espera_BLE = True");
+        else Serial.println("espera_BLE = False");
+        Serial.println("Modo Energia = " + (String)mode_energy);
+        Serial.println("scan = " + (String)campos [9]);
+        Serial.println("Temperatura = " + (String)registro_1);
+        Serial.println("Humedad = " + (String)registro_2);
+        Serial.println("Presión = " + (String)registro_3);
+        Serial.println("Altitud = " + (String)registro_4);
+    }
+#endif
+
 void sensor_BME280(char Fecha_RTC[20]){  
     //Leer temperatura.
     dtostrf(bme280.readTemperature(),2,1,registro_1);
@@ -735,21 +784,7 @@ void sensor_BME280(char Fecha_RTC[20]){
     }
     // DEBUG DataLogger
     #ifdef DEBUG_DATALOGGER
-        Serial.println("*************************************************************");
-        Serial.println("Fecha / Hora WIFI: " + myTZ.dateTime("l, d-M-y H:i:s"));
-        Serial.print("Fecha / Hora RTC: "); Serial.println(Fecha_RTC);
-        if(red_wifi) Serial.println("Red Wifi = True");
-        else Serial.println("Red Wifi = False");
-        if(estado_BLE) Serial.println("estado_BLE = True");
-        else Serial.println("estado_BLE = False");
-        if(espera_BLE) Serial.println("espera_BLE = True");
-        else Serial.println("espera_BLE = False");
-        Serial.println("Modo Energia = " + (String)mode_energy);
-        Serial.println("scan = " + scan);
-        Serial.println("Temperatura = " + (String)registro_1);
-        Serial.println("Humedad = " + (String)registro_2);
-        Serial.println("Presión = " + (String)registro_3);
-        Serial.println("Altitud = " + (String)registro_4);
+        debug_Sensor(Fecha_RTC);
     #endif
 }
 
@@ -772,21 +807,7 @@ void sensor_BME680(char Fecha_RTC[20]){
     }
     // DEBUG DataLogger
     #ifdef DEBUG_DATALOGGER
-        Serial.println("*************************************************************");
-        Serial.println("Fecha / Hora WIFI: " + myTZ.dateTime("l, d-M-y H:i:s"));
-        Serial.print("Fecha / Hora RTC: "); Serial.println(Fecha_RTC);
-        if(red_wifi) Serial.println("Red Wifi = True");
-        else Serial.println("Red Wifi = False");
-        if(estado_BLE) Serial.println("estado_BLE = True");
-        else Serial.println("estado_BLE = False");
-        if(espera_BLE) Serial.println("espera_BLE = True");
-        else Serial.println("espera_BLE = False");
-        Serial.println("Modo Energia = " + (String)mode_energy);
-        Serial.println("scan = " + scan);
-        Serial.println("Temperatura = " + (String)registro_1);
-        Serial.println("Humedad = " + (String)registro_2);
-        Serial.println("Presión = " + (String)registro_3);
-        Serial.println("Gas VOC = " + (String)registro_4);
+        debug_Sensor(Fecha_RTC);
     #endif
 }
 
@@ -809,21 +830,7 @@ void sensor_LM75(char Fecha_RTC[20]){
     }
     // DEBUG DataLogger
     #ifdef DEBUG_DATALOGGER
-        Serial.println("*************************************************************");
-        Serial.println("Fecha / Hora WIFI: " + myTZ.dateTime("l, d-M-y H:i:s"));
-        Serial.print("Fecha / Hora RTC: "); Serial.println(Fecha_RTC);
-        if(red_wifi) Serial.println("Red Wifi = True");
-        else Serial.println("Red Wifi = False");
-        if(estado_BLE) Serial.println("estado_BLE = True");
-        else Serial.println("estado_BLE = False");
-        if(espera_BLE) Serial.println("espera_BLE = True");
-        else Serial.println("espera_BLE = False");
-        Serial.println("Modo Energia = " + (String)mode_energy);
-        Serial.println("scan = " + scan);
-        Serial.println("Temperatura = " + (String)registro_1);
-        Serial.println("Registro 2 = " + (String)registro_2);
-        Serial.println("Registro 3 = " + (String)registro_3);
-        Serial.println("Registro 4 = " + (String)registro_4);
+        debug_Sensor(Fecha_RTC);
     #endif
 }
 
@@ -846,21 +853,7 @@ void sensor_SHT21(char Fecha_RTC[20]){
     }
     // DEBUG DataLogger
     #ifdef DEBUG_DATALOGGER
-        Serial.println("*************************************************************");
-        Serial.println("Fecha / Hora WIFI: " + myTZ.dateTime("l, d-M-y H:i:s"));
-        Serial.print("Fecha / Hora RTC: "); Serial.println(Fecha_RTC);
-        if(red_wifi) Serial.println("Red Wifi = True");
-        else Serial.println("Red Wifi = False");
-        if(estado_BLE) Serial.println("estado_BLE = True");
-        else Serial.println("estado_BLE = False");
-        if(espera_BLE) Serial.println("espera_BLE = True");
-        else Serial.println("espera_BLE = False");
-        Serial.println("Modo Energia = " + (String)mode_energy);
-        Serial.println("scan = " + scan);
-        Serial.println("Temperatura = " + (String)registro_1);
-        Serial.println("Humedad = " + (String)registro_2);
-        Serial.println("Registro 3 = " + (String)registro_3);
-        Serial.println("Registro 4 = " + (String)registro_4);
+        debug_Sensor(Fecha_RTC);
     #endif
 }
 
@@ -883,21 +876,7 @@ void sensor_BH1750(char Fecha_RTC[20]){
     }
     // DEBUG DataLogger
     #ifdef DEBUG_DATALOGGER
-        Serial.println("*************************************************************");
-        Serial.println("Fecha / Hora WIFI: " + myTZ.dateTime("l, d-M-y H:i:s"));
-        Serial.print("Fecha / Hora RTC: "); Serial.println(Fecha_RTC);
-        if(red_wifi) Serial.println("Red Wifi = True");
-        else Serial.println("Red Wifi = False");
-        if(estado_BLE) Serial.println("estado_BLE = True");
-        else Serial.println("estado_BLE = False");
-        if(espera_BLE) Serial.println("espera_BLE = True");
-        else Serial.println("espera_BLE = False");
-        Serial.println("Modo Energia = " + (String)mode_energy);
-        Serial.println("scan = " + scan);
-        Serial.println("Luminosidad = " + (String)registro_1);
-        Serial.println("Registro 2 = " + (String)registro_2);
-        Serial.println("Registro 3 = " + (String)registro_3);
-        Serial.println("Registro 4 = " + (String)registro_4);
+        debug_Sensor(Fecha_RTC);
     #endif
 }
 
@@ -920,21 +899,7 @@ void sensor_VEML6075(char Fecha_RTC[20]){
     }
     // DEBUG DataLogger
     #ifdef DEBUG_DATALOGGER
-        Serial.println("*************************************************************");
-        Serial.println("Fecha / Hora WIFI: " + myTZ.dateTime("l, d-M-y H:i:s"));
-        Serial.print("Fecha / Hora RTC: "); Serial.println(Fecha_RTC);
-        if(red_wifi) Serial.println("Red Wifi = True");
-        else Serial.println("Red Wifi = False");
-        if(estado_BLE) Serial.println("estado_BLE = True");
-        else Serial.println("estado_BLE = False");
-        if(espera_BLE) Serial.println("espera_BLE = True");
-        else Serial.println("espera_BLE = False");
-        Serial.println("Modo Energia = " + (String)mode_energy);
-        Serial.println("scan = " + scan);
-        Serial.println("Indice UV = " + (String)registro_1);
-        Serial.println("Registro 2 = " + (String)registro_2);
-        Serial.println("Registro 3 = " + (String)registro_3);
-        Serial.println("Registro 4 = " + (String)registro_4);
+        debug_Sensor(Fecha_RTC);
     #endif
 }
 
@@ -960,21 +925,7 @@ void sensor_TSL2541(char Fecha_RTC[20]){
     }
     // DEBUG DataLogger
     #ifdef DEBUG_DATALOGGER
-        Serial.println("*************************************************************");
-        Serial.println("Fecha / Hora WIFI: " + myTZ.dateTime("l, d-M-y H:i:s"));
-        Serial.print("Fecha / Hora RTC: "); Serial.println(Fecha_RTC);
-        if(red_wifi) Serial.println("Red Wifi = True");
-        else Serial.println("Red Wifi = False");
-        if(estado_BLE) Serial.println("estado_BLE = True");
-        else Serial.println("estado_BLE = False");
-        if(espera_BLE) Serial.println("espera_BLE = True");
-        else Serial.println("espera_BLE = False");
-        Serial.println("Modo Energia = " + (String)mode_energy);
-        Serial.println("scan = " + scan);
-        Serial.println("Luminosidad = " + (String)registro_1);
-        Serial.println("Registro 2 = " + (String)registro_2);
-        Serial.println("Registro 3 = " + (String)registro_3);
-        Serial.println("Registro 4 = " + (String)registro_4);
+        debug_Sensor(Fecha_RTC);
     #endif
 }
 
@@ -997,21 +948,7 @@ void sensor_AM2320(char Fecha_RTC[20]){
     }
     // DEBUG DataLogger
     #ifdef DEBUG_DATALOGGER
-        Serial.println("*************************************************************");
-        Serial.println("Fecha / Hora WIFI: " + myTZ.dateTime("l, d-M-y H:i:s"));
-        Serial.print("Fecha / Hora RTC: "); Serial.println(Fecha_RTC);
-        if(red_wifi) Serial.println("Red Wifi = True");
-        else Serial.println("Red Wifi = False");
-        if(estado_BLE) Serial.println("estado_BLE = True");
-        else Serial.println("estado_BLE = False");
-        if(espera_BLE) Serial.println("espera_BLE = True");
-        else Serial.println("espera_BLE = False");
-        Serial.println("Modo Energia = " + (String)mode_energy);
-        Serial.println("scan = " + scan);
-        Serial.println("Temperatura = " + (String)registro_1);
-        Serial.println("Humedad = " + (String)registro_2);
-        Serial.println("Registro 3 = " + (String)registro_3);
-        Serial.println("Registro 4 = " + (String)registro_4);
+        debug_Sensor(Fecha_RTC);
     #endif
 }
 
@@ -1320,7 +1257,6 @@ void  getData(){
         if (red_wifi){ 
             esp_wifi_disconnect();
             esp_wifi_stop();
-            //esp_wifi_deinit();
             #ifdef DEBUG_DATALOGGER
                 Serial.println("Desconectado WIFI");
             #endif
@@ -1349,7 +1285,7 @@ BLYNK_CONNECTED() {
 // Controla PULSADOR ON / OFF (BUTTON) DATALOGGER Blynk App
 BLYNK_WRITE(V0)
 { 
-    init_scan = param.asInt();   
+    init_scan = (Estado_Registro)param.asInt();   
 }
 
 // Controla el muestreo del DATALOGGER Blynk App
@@ -1358,35 +1294,35 @@ BLYNK_WRITE(V5)
     switch (param.asInt()){
         case 1: // 30seg
             intervalo = 30000;
-            scan =" 30 seg";
+            campos [9] =" 30 seg";
             #ifdef DEBUG_DATALOGGER
                 Serial.println("Blynk 30 seg");
             #endif
             break;
         case 2: // 60 seg
             intervalo = 60000;
-            scan =" 60 seg";
+            campos [9] =" 60 seg";
             #ifdef DEBUG_DATALOGGER
                 Serial.println("Blynk 60 seg");
             #endif
             break;
         case 3: // 5 min
             intervalo = 300000;
-            scan =" 5 min";
+            campos [9] =" 5 min";
             #ifdef DEBUG_DATALOGGER
                 Serial.println("Blynk 5 min");
             #endif
             break;
         case 4: // 15 min
             intervalo = 900000;
-            scan =" 15 min";
+            campos [9] =" 15 min";
             #ifdef DEBUG_DATALOGGER
                 Serial.println("Blynk 15 min");
             #endif
             break;
         case 5: // 30min
             intervalo = 1800000;
-            scan =" 30 min";
+            campos [9] =" 30 min";
             #ifdef DEBUG_DATALOGGER
                 Serial.println("Blynk 30 min");
             #endif
@@ -1402,7 +1338,7 @@ BLYNK_WRITE(V5)
 // Controla PULSADOR ON / OFF (BUTTON) LOW ENERGY DATALOGGER Blynk App
 BLYNK_WRITE(V7)
 { 
-    mode_energy = param.asInt();
+    mode_energy = (Estado_Energy)param.asInt();
     // No vuelve a entrar en modo Ahorro energía
     if (mode_energy==Normal){
         // power on the Lcd
@@ -1442,32 +1378,32 @@ void setup() {
     Scanner_I2C();
         switch(sensor) {
             case BME280:  
-                Detectado_sensor="BME280";
+                campos [8]="BME280";
                 break;
             case BME680:  
-                Detectado_sensor="BME680";
+                campos [8]="BME680";
                 break;
             case LM75:  
-                Detectado_sensor="LM75";
+                campos [8]="LM75";
                 break;
             case SHT21:  
-                Detectado_sensor="SHT21";
+                campos [8]="SHT21";
                 break;
             case lux_BH1750:  
-                Detectado_sensor="BH1750";
+                campos [8]="BH1750";
                 break;
             case VEML6075:  
-                Detectado_sensor="VEML6075";
+                campos [8]="VEML6075";
                 break;
             case TSL2541:  
-                Detectado_sensor="TSL2541";
+                campos [8]="TSL2541";
                 break;
             case AM2320:  
-                Detectado_sensor="AM2320";
+                campos [8]="AM2320";
                 break;
         }
     #ifdef DEBUG_DATALOGGER
-        Serial.println("SETUP: Sensor Detectado = " + Detectado_sensor);
+        Serial.println("SETUP: Sensor Detectado = " + (String)campos [8]);
     #endif
     inicio_sensor();
 
@@ -1546,10 +1482,10 @@ void setup() {
             ez.canvas.println("Ahorro Energia Desactivado");
             ez.canvas.println(" ");
             ez.canvas.println("   DataLogger iniciado");
-            ez.canvas.println("   cada" + scan);
+            ez.canvas.println("   cada" + (String)campos [9]);
             #ifdef DEBUG_DATALOGGER
                 Serial.println("SETUP EXT0: intervalo = " + (String)intervalo);
-                Serial.println("SETUP EXT0: scan " + scan);
+                Serial.println("SETUP EXT0: scan " + (String)campos [9]);
             #endif
             break;
         case ESP_SLEEP_WAKEUP_TIMER: // RETORNO DEEP SLEEP -> Timer cada intervalo
@@ -1560,7 +1496,7 @@ void setup() {
             #ifdef DEBUG_DATALOGGER
                 getTimeScan();
                 Serial.println("SETUP TIMER: intervalo = " + (String)intervalo);
-                Serial.println("SETUP TIMER: scan = " + scan);
+                Serial.println("SETUP TIMER: scan = " + (String)campos [9]);
             #endif
             break;
     }
@@ -1597,24 +1533,25 @@ void loop() {
             getData(); // recoge y graba datos en SD cada intervalo
             break;
         case Arranque: // Borrado y actualizado encabezados SD -> Solo se ejecura 1 vez
+            campos [9] = " 30 seg"; // Intervalo muestreo por defecto 30 seg mostrado en pantalla
             ez.msgBox("Inicio DataLogger", "¿Quieres borrar y actualizar encabezados tarjeta SD con el sensor " 
-                        + Detectado_sensor + "?", "No # # Yes",false);
+                        + (String)campos [8] + "?", "No # # Yes",false);
             mode_energy = Normal; // 
             break;
         case Normal: // Funcionamiento normal a la espera de iteración con usuario
             if (init_scan==start){ // Inicia DataLogger
                 #ifdef DEBUG_DATALOGGER
                     Serial.println("LOOP: intervalo = " + (String)intervalo);
-                    Serial.println("LOOP: scan = " + scan);
+                    Serial.println("LOOP: scan = " + (String)campos [9]);
                 #endif
                 timer.deleteTimer(numTimer);
                 numTimer = timer.setInterval(intervalo, getData); // recoge y graba datos en SD cada intervalo
-                write_Pantalla("Iniciado DataLogger " + Detectado_sensor + "       escaneando cada" + scan);
+                write_Pantalla("Iniciado DataLogger " + (String)campos [8] + "       escaneando cada" + (String)campos [9]);
                 mode_energy = Normal;
             }
             if (init_scan==stop){ // Para DataLogger
                 timer.disable(numTimer);
-                write_Pantalla("Parado DataLogger " + Detectado_sensor);   
+                write_Pantalla("Parado DataLogger " + (String)campos [9]);   
                 mode_energy = Normal;
             }
             init_scan = run; // run variable control DataLogger

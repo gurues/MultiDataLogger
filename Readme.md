@@ -32,7 +32,7 @@
     - Configuración General (WIFI, Reloj, Pantalla, BLE, ....)
     - Configuración RTC (configuracón manual de fecha y hora)
     - EXIT
-  - Botón B: "START / SLEEP" 
+  - Botón B: "START / SLEEP"
     - Pulso corto: Activa Datalogger, comienza a registrar
     - Pulsación larga: EL M5STACK entra en modo "deep sleep", ahorro de energia, y despierta en los intervalos configurados para realizar un registro
   - Botón C: "STOP / EXIT SLEEP"
@@ -59,7 +59,7 @@
 - Address: 72  (0x48) LM75
 - Address: 92  (0x5C) AM2320
 - Address: 104 (0x68) RTC DS3231
-- Address: 117 (0x75) IP5306 Controlador de Bateria del M5STACK 
+- Address: 117 (0x75) IP5306 Controlador de Bateria del M5STACK
 - Address: 118 (0x76) BME-280
 - Address: 119 (0x77) BME-680
   
