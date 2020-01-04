@@ -63,4 +63,12 @@
 - Address: 118 (0x76) BME-280
 - Address: 119 (0x77) BME-680
   
+### Otros contenidos
+
+- Carpeta "app BLYNK":
+  - Contiene la configuración y diseño de la app BLE que se conecta la DataLogger
+  
+- Carpeta "Gerber_PCB_M5_SENSOR_DATALOGGER"
+  - Contiene el diseño de la PCB del adaptador de sensores para su conexión a los pines 5V 3V3 G SDA(21) SCL(22) del M5STACK
+
 ### Proyecto realizado por gurues@2019-2020
