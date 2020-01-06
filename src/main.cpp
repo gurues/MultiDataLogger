@@ -56,6 +56,9 @@
 //Token app Blynk
 char auth[] = "votRVhHKSuTYsnu9cupBwNq-yD0scAZK";
 
+//matriz C externa del logo
+extern const unsigned char logo[];
+
 // Definición de Constantes
 #define uS_to_S_Factor 1000         // Factor para DeepSleep en segundos
 #define SEALEVELPRESSURE_mbar (1010) // Estimar la altitud para una presión dada comparándola con la presión
@@ -505,7 +508,7 @@ void submenu3_CONFIG(){
 }
 
 void submenu4_RTC(){
-    int F_year, F_day, F_month, F_hour, F_minute=0;
+    int F_year=2020, F_day=1, F_month=1, F_hour=0, F_minute=0;
     if(red_wifi){
         F_year=myTZ.year();
         F_day=myTZ.day();
@@ -642,11 +645,11 @@ void scanButton() {
     if (btn == "Yes") {
         // Borrado archivo datalog.csv y actulización encabezados de la SD
         borrado_encabezado_SD();
-        write_Pantalla("Tarjeta SD preparada para           sensor " + (String)campos [8]); 
+        write_Pantalla("Datalogger y tarjeta SD                preparados para sensor " + (String)campos [8]); 
     }
     if (btn == "No") {
         // Borrado archivo datalog.csv y actulización encabezados de la SD
-        write_Pantalla("Tarjeta SD preparada para           sensor " + (String)campos [8]); 
+        write_Pantalla("Datalogger preparado para           sensor " + (String)campos [8]); 
     }
 }
 
@@ -1532,6 +1535,8 @@ void loop() {
             getData(); // recoge y graba datos en SD cada intervalo
             break;
         case Arranque: // Borrado y actualizado encabezados SD -> Solo se ejecura 1 vez
+            M5.Lcd.drawBitmap(0, 0, 320, 240, (uint16_t *) logo); // Muestra en pantalla logo
+            delay(3000);
             campos [9] = " 30 seg"; // Intervalo muestreo por defecto 30 seg mostrado en pantalla
             ez.msgBox("Inicio DataLogger", "¿Quieres borrar y actualizar encabezados tarjeta SD con el sensor " 
                         + (String)campos [8] + "?", "No # # Yes",false);
