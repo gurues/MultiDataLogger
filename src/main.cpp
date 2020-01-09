@@ -79,7 +79,7 @@ SimpleTimer timer;
 int numTimer, batTimer;
 
 //Objeto RTC
-RTC_DS1307 rtc;
+RTC_DS3231 rtc;
 
 // Objeto timezone
 Timezone myTZ;
@@ -128,6 +128,7 @@ RTC_DATA_ATTR bool estado_BLE = false;              // Variable de control Bluet
 RTC_DATA_ATTR bool espera_BLE = false;              // Variable de control espera conexión Bluetooth BLE -> false: No espera true: espera
 bool menu = false;                                  // Variable de control para no refrescar pantalla si estoy en un menu
 int battery;                                        // Nivel de bateria 100% - 75% - 50% - 25%
+Estado_Energy mem_mode_energy;                      // Etado anterior Modos de energia -> 0: Normal 1: Ahorro Energia Activado 2: Arranque 1ª vez Normal
 
 //variables a registrar del sensor
 char registro_1 [20];
@@ -166,9 +167,6 @@ void Inicia_Pantalla(){
     ez.canvas.y(ez.canvas.height()/5);
     ez.canvas.x(15);
     ez.canvas.font(&FreeSerifBold12pt7b);
-    //Draw the jpeg file form TF card
-    //Draw the jpeg file "p2.jpg" from TF(SD) card
-    //M5.Lcd.drawJpgFile(SD, "/p2.jpg");
 } 
 
 // Escribe mensajes en Pantalla
@@ -709,6 +707,98 @@ void sensor_display_Blink(){
         terminal.flush();
     }
 }
+void leer_SD(){
+    String cadena = "";
+    int Posicion = 0; // Posición de lectura archivo datalog.csv
+
+    myFile = SD.open("/datalog.csv", FILE_READ);//abrimos  el archivo y añadimos datos
+    if (myFile) { 
+        #ifdef DEBUG_DATALOGGER
+            Serial.println("Leyendo datos de Tarjeta SD .....");
+        #endif
+        int totalBytes = myFile.size();
+        #ifdef DEBUG_DATALOGGER
+            Serial.print("totalBytes: ");
+            Serial.println((String)totalBytes);
+        #endif
+        // Busco cuantos bytes ocupan los últimos registros
+        // Me posiciono en la última posición con datos del archivo datalog.csv
+        Posicion = totalBytes - 3;
+        myFile.seek(Posicion); 
+        while (myFile.available()) {
+            char caracter = myFile.read();
+            if((caracter==00)||(caracter==10)||(caracter==13)){ //ASCII de nueva de línea  o Retorno de carro       
+                break;
+            }
+            else{
+                Posicion = Posicion - 1;
+                myFile.seek(Posicion);
+            }
+        }
+        #ifdef DEBUG_DATALOGGER
+            Serial.print("Bytes a Recuperar:");
+            Serial.println((String)Posicion);
+        #endif
+        //Leemos los ultimos registros del archivo datalog.csv
+        Posicion = Posicion + 1;
+        myFile.seek(Posicion);
+        String cadena;
+        int i=0;
+        while (myFile.available()) {
+            char caracter = myFile.read();
+            if(caracter==44){ //ASCII: ',' Sa busca para encortrar los registros a recuperar
+                switch (i) { // DIA,FECHA WIFI,FECHA RTC,registro_1,registro_2,registro_3,registro_4
+                    case 3: 
+                        cadena.toCharArray(registro_1, sizeof(registro_1));
+                        #ifdef DEBUG_DATALOGGER
+                            Serial.print("Registros_1 recuperados SD:");
+                            Serial.println(registro_1);
+                        #endif
+                        break;  
+                    case 4: 
+                        cadena.toCharArray(registro_2, sizeof(registro_2));
+                        #ifdef DEBUG_DATALOGGER
+                            Serial.print("Registros_2 recuperados SD:");
+                            Serial.println(registro_2);
+                        #endif
+                        break;
+                    case 5: 
+                        cadena.toCharArray(registro_3, sizeof(registro_3));
+                        #ifdef DEBUG_DATALOGGER
+                            Serial.print("Registros_3 recuperados SD:");
+                            Serial.println(registro_3);
+                        #endif
+                        break;
+                    case 6: 
+                        cadena.toCharArray(registro_4, sizeof(registro_4));
+                        #ifdef DEBUG_DATALOGGER
+                            Serial.print("Registros_4 recuperados SD:");
+                            Serial.println(registro_4);
+                        #endif
+                        break;
+                }
+                #ifdef DEBUG_DATALOGGER
+                    Serial.print("i:");
+                    Serial.println(i);
+                #endif
+                i++;
+                cadena = "";
+            }
+            else{
+                cadena = cadena + caracter;
+            }
+            if(myFile.position()==(totalBytes)){
+                break;
+            }
+        }
+        myFile.close(); //cerramos el archivo
+    }
+    else{
+        #ifdef DEBUG_DATALOGGER	
+            Serial.println("Error al abrir el archivo datalog.csv");
+        #endif
+    }
+}
 
 void almacenar_SD(char Fecha_RTC[20]){
     //Almacenamos los datos en la SD
@@ -732,7 +822,7 @@ void almacenar_SD(char Fecha_RTC[20]){
             myFile.print(",");
             myFile.print(registro_4);  
         }
-        myFile.println("");  // Salto de linea
+        myFile.println(",");  // Salto de linea
         myFile.close();    //cerramos el archivo                    
     } 
     else {
@@ -1470,9 +1560,11 @@ void setup() {
             // power on the Lcd
             M5.Lcd.wakeup();
             M5.Lcd.setBrightness(50);
-            Inicia_Pantalla();
-            mode_energy=Normal; // DESACTIVADO Ahorro de energia
-            init_scan=start; // antes era init_scan = 2 en loop()
+            //leer_SD();
+            //Inicia_Pantalla();
+            mem_mode_energy = Ahorro; // Estado energia anterior
+            mode_energy = Normal; // DESACTIVADO Ahorro de energia
+            init_scan = start; // para que en loop() inicialice timer
             if (red_wifi){ // Se conectara a WIFI si antes del sueño profundo esta conectado
                 WifiState_t EstadoWifi = EZWIFI_IDLE;
                 while(EstadoWifi != EZWIFI_IDLE){}
@@ -1481,10 +1573,10 @@ void setup() {
                 Inicia_Pantalla();
             }
             getTimeScan();
-            ez.canvas.println("Ahorro Energia Desactivado");
-            ez.canvas.println(" ");
-            ez.canvas.println("   DataLogger iniciado");
-            ez.canvas.println("   cada" + (String)campos [9]);
+            //ez.canvas.println("Ahorro Energia Desactivado");
+            //ez.canvas.println(" ");
+            //ez.canvas.println("   DataLogger iniciado");
+            //ez.canvas.println("   cada" + (String)campos [9]);
             #ifdef DEBUG_DATALOGGER
                 Serial.println("SETUP EXT0: intervalo = " + (String)intervalo);
                 Serial.println("SETUP EXT0: scan " + (String)campos [9]);
@@ -1540,6 +1632,7 @@ void loop() {
             campos [9] = " 30 seg"; // Intervalo muestreo por defecto 30 seg mostrado en pantalla
             ez.msgBox("Inicio DataLogger", "¿Quieres borrar y actualizar encabezados tarjeta SD con el sensor " 
                         + (String)campos [8] + "?", "No # # Yes",false);
+            mem_mode_energy = Arranque; 
             mode_energy = Normal; // 
             break;
         case Normal: // Funcionamiento normal a la espera de iteración con usuario
@@ -1547,15 +1640,23 @@ void loop() {
                 #ifdef DEBUG_DATALOGGER
                     Serial.println("LOOP: intervalo = " + (String)intervalo);
                     Serial.println("LOOP: scan = " + (String)campos [9]);
+                    Serial.println("LOOP: mem_init_scan = " + (String)mem_mode_energy);
                 #endif
                 timer.deleteTimer(numTimer);
                 numTimer = timer.setInterval(intervalo, getData); // recoge y graba datos en SD cada intervalo
-                write_Pantalla("Iniciado DataLogger " + (String)campos [8] + "       escaneando cada" + (String)campos [9]);
+                if (mem_mode_energy == Ahorro){ // ya estaba iniciado el DataLogger
+                    Inicia_Pantalla();
+                    leer_SD();
+                    show_Data();
+                }
+                else{ // iniciado DataLogger por primera vez 
+                    write_Pantalla("Iniciado DataLogger " + (String)campos [8] + "       escaneando cada" + (String)campos [9]);
+                }
                 mode_energy = Normal;
             }
             if (init_scan==stop){ // Para DataLogger
                 timer.disable(numTimer);
-                write_Pantalla("Parado DataLogger " + (String)campos [9]);   
+                write_Pantalla("Parado DataLogger " + (String)campos [8]);   
                 mode_energy = Normal;
             }
             init_scan = run; // run variable control DataLogger
