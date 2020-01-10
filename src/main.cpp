@@ -71,8 +71,8 @@ extern const unsigned char logo[];
 #define PIN_SDA 21      // Pin SCA I2C
 #define PIN_SCL 22      // Pin SCL I2C
 
-// Refresco eventos cada 250 mseg (SimpleTimer funciones y Blynk App)
-const uint16_t refresco = 250; 
+
+//  --------------  Objetos del Proyecto
 
 // Objeto SimpleTimer para la ejecución periodica de funciones
 SimpleTimer timer;
@@ -84,7 +84,10 @@ RTC_DS3231 rtc;
 // Objeto timezone
 Timezone myTZ;
 
-// Objetos de sensores permitidos:
+// Objeto para el manejo de ficheros en tarjeta SD
+File myFile;
+
+//  --------------  Objetos de sensores permitidos:
 // Objeto BH1750
 BH1750 bh1750; // I2C 0x23
 // Objeto VEML6075
@@ -102,11 +105,9 @@ Adafruit_BME280 bme280; // I2C 0x76
 // Objeto BME680
 Adafruit_BME680 bme680; // I2C 0x77
 
+// ---------------------------------------------------
 
-// Objeto para el manejo de ficheros en tarjeta SD
-File myFile;
-
-// Variables de estado del Proyecto
+//  --------------  Variables de estado del Proyecto
 enum Estado_Energy{     // Modos de energia del DataLogger
     Normal, Ahorro, Arranque
 };
@@ -116,8 +117,9 @@ enum Estado_Registro{   // Modos de registro
 enum Sensor_Registro{   // Sensores permitidos
     ninguno, BME280, BME680, LM75, SHT21, lux_BH1750, VEML6075, TSL2541, AM2320
 };
+// ---------------------------------------------------
 
-// Variables de contol del Proyecto
+//  --------------  Variables de contol del Proyecto
 RTC_DATA_ATTR Estado_Energy mode_energy = Arranque; // Modos de energia -> 0: Normal 1: Ahorro Energia Activado 2: Arranque 1ª vez Normal
 RTC_DATA_ATTR Estado_Registro init_scan = run;      // Modos de registro de datos -> start/stop/run
 RTC_DATA_ATTR Sensor_Registro sensor = ninguno;     // Sensor I2C a registrar
@@ -129,20 +131,24 @@ RTC_DATA_ATTR bool espera_BLE = false;              // Variable de control esper
 bool menu = false;                                  // Variable de control para no refrescar pantalla si estoy en un menu
 int battery;                                        // Nivel de bateria 100% - 75% - 50% - 25%
 Estado_Energy mem_mode_energy;                      // Etado anterior Modos de energia -> 0: Normal 1: Ahorro Energia Activado 2: Arranque 1ª vez Normal
+const uint16_t refresco = 250;                      // Refresco eventos cada 250 mseg (SimpleTimer funciones y Blynk App)
+// ---------------------------------------------------
 
-//variables a registrar del sensor
+//  --------------  Variables a registrar del sensor
 char registro_1 [20];
 char registro_2 [20];
 char registro_3 [20];
 char registro_4 [20];
-                         
-//Variable control encabezados DataLogger
+// ---------------------------------------------------
+
+//  --------------  Variable control encabezados DataLogger
 ////{campos[0], campos[1],campos[2], campos[3],campos[4], campos[5],
 //campos[6], campos[7],campos[8], campos[9]}
 //{encabezado reg_1, unidad reg_1,encabezado reg_2, unidad reg_2,encabezado reg_3, unidad reg_3,
 // encabezado reg_4, unidad reg_4,sensor detectado, escaneo}
 
 char const *campos[10]; 
+// ---------------------------------------------------
 
 // Terminal de la app BLE BLYNK
 WidgetTerminal terminal (V10);
@@ -159,7 +165,7 @@ void Level_Battery(){ // Controlador de carga Bateria IP5306_I2C chip del M5STAC
         Blynk.virtualWrite(V6,battery); 
 }
 
-// Inicio Pantalla Vacia
+// Inicio Pantalla Vacia y botones disponibles
 void Inicia_Pantalla(){
     ez.screen.clear();
     Level_Battery();
@@ -249,6 +255,7 @@ void show_Data(){
     }
 }
 
+// Menu de configuración BLE del DataLogger
 void submenu_BLE(){
     ezMenu myMenu_BLE("Configuracion BLE");
     myMenu_BLE.addItem("BLE - START");
@@ -365,6 +372,7 @@ void submenu1_SCAN(){
     }
 }
 
+// Borrado archivo y actualización encabezados archivo datalog.csv de la SD
 void borrado_encabezado_SD(){
     if(!(SD.remove("/datalog.csv"))){ // Borrado archivo datalog.csv de la SD
         ez.msgBox("Borrar SD - SI", "Error al borrar el archivo en tarjeta SD");
@@ -375,7 +383,7 @@ void borrado_encabezado_SD(){
     }           
     myFile = SD.open("/datalog.csv", FILE_WRITE); // Creado archivo datalog.csv en la SD
     if (myFile) {
-        switch(sensor) {
+        switch(sensor) { // Creación de encabezados archivo datalog.csv
             case BME280:  // Se crea encabezado BME280 en datalog.csv
                 myFile.println("Dia WIFI,Fecha Hora WIFI,Fecha Hora RTC,Temperatura (ºC),Humedad (%),Presion (mbar),Altitud (m), Sensor BME280");
                 myFile.close();
@@ -400,25 +408,25 @@ void borrado_encabezado_SD(){
                 ez.msgBox("Borrar SD - SI", "Datos Borrados de tarjeta SD");
                 Inicia_Pantalla();
                 break;
-            case VEML6075:  // Se crea encabezado BMe680 en datalog.csv
+            case VEML6075:  // Se crea encabezado VEML6075 en datalog.csv
                 myFile.println("Dia WIFI,Fecha Hora WIFI,Fecha Hora RTC,indice UV,, Sensor VEML6075");
                 myFile.close();
                 ez.msgBox("Borrar SD - SI", "Datos Borrados de tarjeta SD");
                 Inicia_Pantalla();
                 break;
-            case TSL2541:  // Se crea encabezado BMe680 en datalog.csv
+            case TSL2541:  // Se crea encabezado TSL2541 en datalog.csv
                 myFile.println("Dia WIFI,Fecha Hora WIFI,Fecha Hora RTC,Nivel Luminosidad (lux), Sensor TSL2541");
                 myFile.close();
                 ez.msgBox("Borrar SD - SI", "Datos Borrados de tarjeta SD");
                 Inicia_Pantalla();
                 break;
-            case SHT21:
+            case SHT21:     // Se crea encabezado SHT21 en datalog.csv
                 myFile.println("Dia WIFI,Fecha Hora WIFI,Fecha Hora RTC,Temperatura (ºC),Humedad (%), Sensor SHT21");
                 myFile.close();
                 ez.msgBox("Borrar SD - SI", "Datos Borrados de tarjeta SD");
                 Inicia_Pantalla();
                 break;
-            case AM2320:
+            case AM2320:    // Se crea encabezado AM2320 en datalog.csv
                 myFile.println("Dia WIFI,Fecha Hora WIFI,Fecha Hora RTC,Temperatura (ºC),Humedad (%), Sensor AM2320");
                 myFile.close();
                 ez.msgBox("Borrar SD - SI", "Datos Borrados de tarjeta SD");
@@ -505,58 +513,85 @@ void submenu3_CONFIG(){
         Inicia_Pantalla();
 }
 
+// Menu configuración RTC
 void submenu4_RTC(){
-    int F_year=2020, F_day=1, F_month=1, F_hour=0, F_minute=0;
-    if(red_wifi){
-        F_year=myTZ.year();
-        F_day=myTZ.day();
-        F_month=myTZ.month();
-        F_hour=myTZ.hour();
-        F_minute=myTZ.minute();
-    }
+    String Fecha, Hora, m;
+    int mes;
     ezMenu myMenu4("Configuracion RTC");
-    myMenu4.addItem("Day");
-    myMenu4.addItem("Month");
-    myMenu4.addItem("Year");
-    myMenu4.addItem("Hour");
-    myMenu4.addItem("Minute");
-    myMenu4.addItem("RTC_OK");
+    myMenu4.addItem("Fecha Hora Manual");
+    myMenu4.addItem("Fecha Hora WIFI");
     myMenu4.addItem("EXIT");
-    String dato;
+
     switch (myMenu4.runOnce()) {
-        case 1: // Dia   
-            dato = (ez.textInput("Day", (String)F_day));
-            F_day = dato.toInt();
-            submenu4_RTC();
-            break;
-        case 2: // Mes  
-            dato = (ez.textInput("Month", (String)F_month));
-            F_month = dato.toInt();
-            submenu4_RTC();
-            break;
-        case 3: // Año  
-            dato = (ez.textInput("Year", (String)F_year));
-            F_year = dato.toInt();
-            submenu4_RTC();
-            break;
-        case 4: // Hora  
-            dato = (ez.textInput("Hour", (String)F_hour));
-            F_hour = dato.toInt();
-            submenu4_RTC();
-            break;
-        case 5: // Minuto  
-            dato = (ez.textInput("Minute", (String)F_minute));
-            F_minute = dato.toInt();
-            submenu4_RTC();
-            break;
-        case 6: // RTC_OK
-            // Fijar a fecha y hora específica. En el ejemplo, 21 de Enero de 2016 a las 03:00:00
-            // rtc.adjust(DateTime(2016, 1, 21, 3, 0, 0));
-            rtc.adjust(DateTime(F_year, F_month, F_day, F_hour, F_minute, 0)); 
+        case 1: // Fijar a fecha y hora específica.   
+            // sample input: date = "Dec 26 2009", 
+            Fecha = (ez.textInput("Fecha: ddmmaaaa"));
+            m = Fecha.substring(2, 4);
+            mes = m.toInt();
+            switch (mes) { // Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec
+                case 1:
+                    Fecha = "Jar " + Fecha.substring(0, 2) + " " + Fecha.substring(4);
+                    break;
+                case 2:
+                    Fecha = "Feb " + Fecha.substring(0, 2) + " " + Fecha.substring(4);
+                    break;
+                case 3:
+                    Fecha = "Mar " + Fecha.substring(0, 2) + " " + Fecha.substring(4);
+                    break;
+                case 4:
+                    Fecha = "Mar " + Fecha.substring(0, 2) + " " + Fecha.substring(4);
+                    break;
+                case 5:
+                    Fecha = "Apr " + Fecha.substring(0, 2) + " " + Fecha.substring(4);
+                    break;
+                case 6:
+                    Fecha = "Jun " + Fecha.substring(0, 2) + " " + Fecha.substring(4);
+                    break;
+                case 7:
+                    Fecha = "Jul " + Fecha.substring(0, 2) + " " + Fecha.substring(4);
+                    break;
+                case 8:
+                    Fecha = "Aug " + Fecha.substring(0, 2) + " " + Fecha.substring(4);
+                    break;
+                case 9:
+                    Fecha = "Sep " + Fecha.substring(0, 2) + " " + Fecha.substring(4);
+                    break;
+                case 10:
+                    Fecha = "Oct " + Fecha.substring(0, 2) + " " + Fecha.substring(4);
+                    break;
+                case 11:
+                    Fecha = "Nov " + Fecha.substring(0, 2) + " " + Fecha.substring(4);
+                    break;
+                case 12:
+                    Fecha = "Dec " + Fecha.substring(0, 2) + " " + Fecha.substring(4);
+                    break;
+            }
+            // ej -> time = "12:34:56"
+            Hora = (ez.textInput("Hora: hhmm"));
+            Hora = Hora.substring(0, 2) + ":" + Hora.substring(2) + ":" + "00";
+            #ifdef DEBUG_DATALOGGER
+                Serial.print("Fecha: ");
+                Serial.print(Fecha);
+                Serial.print("  Hora: ");
+                Serial.println(Hora);
+            #endif
+            rtc.adjust(DateTime(Fecha.c_str(), Hora.c_str()));
             Inicia_Pantalla();
             menu = false;
             break;
-        case 7: // EXIT
+        case 2: // Fijar a fecha y hora específica.   
+            if(red_wifi){
+                int F_year = myTZ.year();
+                int F_day = myTZ.day();
+                int F_month = myTZ.month();
+                int F_hour = myTZ.hour();
+                int F_minute = myTZ.minute();
+                rtc.adjust(DateTime(F_year, F_month, F_day, F_hour, F_minute, 0)); 
+            }
+            Inicia_Pantalla();
+            menu = false;
+            break;
+        case 3: // EXIT
             Inicia_Pantalla();
             menu = false;
             break;
@@ -659,6 +694,7 @@ uint16_t Programa_Eventos(){
     return refresco; // retorna el intervalo para su nueva ejecución
 }
 
+// Actualización registros app BLYNK
 void sensor_display_Blink(){
     // sensor de 1 registro: LM75 / lux_BH1750 / VEML6075 / TSL2541
     if ((sensor==BME280)||(sensor==BME680)||(sensor==AM2320)||(sensor==SHT21)||
@@ -707,10 +743,11 @@ void sensor_display_Blink(){
         terminal.flush();
     }
 }
-void leer_SD(){
+
+// REcupera los últimos registros de la tarjeta SD y los muestra en pantalla
+void leer_SD(){ 
     String cadena = "";
     int Posicion = 0; // Posición de lectura archivo datalog.csv
-
     myFile = SD.open("/datalog.csv", FILE_READ);//abrimos  el archivo y añadimos datos
     if (myFile) { 
         #ifdef DEBUG_DATALOGGER
@@ -800,8 +837,8 @@ void leer_SD(){
     }
 }
 
+// Almacena los registros del sensor en la tarjeta SD
 void almacenar_SD(char Fecha_RTC[20]){
-    //Almacenamos los datos en la SD
     myFile = SD.open("/datalog.csv", FILE_APPEND);//abrimos  el archivo y añadimos datos
     if (myFile) { 
         #ifdef DEBUG_DATALOGGER
@@ -836,7 +873,7 @@ void almacenar_SD(char Fecha_RTC[20]){
 ///////////////                FUNCIONES SENSORES                 /////////////////////////////////////////                                 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-#ifdef DEBUG_DATALOGGER
+#ifdef DEBUG_DATALOGGER     // Solo se ejecuta en modo DEBUG
     void debug_Sensor(char Fecha_RTC[20]){
     // DEBUG DataLogger
         Serial.println("*************************************************************");
@@ -857,6 +894,7 @@ void almacenar_SD(char Fecha_RTC[20]){
     }
 #endif
 
+// BME280: Registra -> Temperatura, Huemdad, Presión y altitud
 void sensor_BME280(char Fecha_RTC[20]){  
     //Leer temperatura.
     dtostrf(bme280.readTemperature(),2,1,registro_1);
@@ -880,6 +918,7 @@ void sensor_BME280(char Fecha_RTC[20]){
     #endif
 }
 
+// BME280: Registra -> Temperatura, Huemdad, Presión y calidad del aire
 void sensor_BME680(char Fecha_RTC[20]){
     //Leer temperatura.
     dtostrf(bme680.readTemperature(),2,1,registro_1);
@@ -903,6 +942,7 @@ void sensor_BME680(char Fecha_RTC[20]){
     #endif
 }
 
+// LM75: Registra -> Nivel de Luminusidad
 void sensor_LM75(char Fecha_RTC[20]){
     //Leer nivel luminusidad.
     dtostrf(lm75.readTemperatureC(),2,1,registro_1);
@@ -926,6 +966,7 @@ void sensor_LM75(char Fecha_RTC[20]){
     #endif
 }
 
+//SHT21: Registra -> Temperatura, Huemdad
 void sensor_SHT21(char Fecha_RTC[20]){
     //Leer temperatura.
     dtostrf(sht21.readTemperature(),2,1,registro_1);
@@ -949,6 +990,7 @@ void sensor_SHT21(char Fecha_RTC[20]){
     #endif
 }
 
+// BH1750: Registra -> Nivel de Luminusidad
 void sensor_BH1750(char Fecha_RTC[20]){
     //Leer luminosidad.
     dtostrf(bh1750.readLightLevel(),2,1,registro_1);
@@ -972,6 +1014,7 @@ void sensor_BH1750(char Fecha_RTC[20]){
     #endif
 }
 
+// VEML6075: Registra -> Indice ultravioleta
 void sensor_VEML6075(char Fecha_RTC[20]){
     //Leer indice UV.
     dtostrf(veml6075.readUVI(),2,1,registro_1);
@@ -995,6 +1038,7 @@ void sensor_VEML6075(char Fecha_RTC[20]){
     #endif
 }
 
+// TSL2541: Registra -> Nivel de Luminusidad
 void sensor_TSL2541(char Fecha_RTC[20]){
     //Leer luminosidad.
     sensors_event_t event;
@@ -1021,6 +1065,7 @@ void sensor_TSL2541(char Fecha_RTC[20]){
     #endif
 }
 
+// AM2320: Registra -> Temperatura, Huemdad
 void sensor_AM2320(char Fecha_RTC[20]){
     //Leer temperatura.
     dtostrf(am2320.readTemperature(),2,1,registro_1);
@@ -1044,13 +1089,13 @@ void sensor_AM2320(char Fecha_RTC[20]){
     #endif
 }
 
+// Busca las direcciones I2C del sensor conectado al DataLogger
 void Scanner_I2C(){
     #ifdef DEBUG_DATALOGGER
         Serial.println ();
         Serial.println ("I2C scanner. Scanning ...");
     #endif
     byte direccion_I2C = 0;
-
     for (byte direccion = 8; direccion < 120; direccion++){
         Wire.beginTransmission (direccion); // Comienza I2C transmision Address (direccion)
         if (Wire.endTransmission () == 0) { // Recibido 0 = success (ACK response) 
@@ -1170,6 +1215,7 @@ void Scanner_I2C(){
     }
 }
 
+// Configuración inicial del sensor detectado
 void inicio_sensor(){
     switch(sensor) {
         case BME280:
@@ -1187,7 +1233,7 @@ void inicio_sensor(){
                 ez.canvas.println("  BME680 !!!");
                 while (1);
             }
-            // Set up oversampling and filter initialization
+            // Configuración inicial sobremuestreo filtro inicial
             bme680.setTemperatureOversampling(BME680_OS_8X);
             bme680.setHumidityOversampling(BME680_OS_2X);
             bme680.setPressureOversampling(BME680_OS_4X);
@@ -1248,7 +1294,8 @@ void inicio_sensor(){
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-// Recoge los datos requeridos los muestra en pantlla y los alamacena en la tarjeta SD
+// Gestiona la adquisición de los registros del sensor, su almacenamiento en tarjeta SD, su visialización 
+// en pantlla, ahorro de enrgía DeepSleep y conexiones BLE y WIFI
 void  getData(){
     // Fecha y Hora -> WIFI y RTC
     //WIFI: Provide official timezone names: https://en.wikipedia.org/wiki/List_of_tz_database_time_zones
@@ -1441,6 +1488,7 @@ BLYNK_WRITE(V7)
     }
 }
 
+// Espera la conexión BLE incluso en ahorro de energía
 BLYNK_WRITE(V8)
 { 
     espera_BLE = param.asInt(); 
@@ -1505,7 +1553,7 @@ void setup() {
         while (1);
     }
 
-    // Inicio RTC DS1307
+    // Inicio RTC DS3231
     if (!rtc.begin()) {
         ez.canvas.println("No encontrado RTC");
         while (1);
@@ -1560,8 +1608,6 @@ void setup() {
             // power on the Lcd
             M5.Lcd.wakeup();
             M5.Lcd.setBrightness(50);
-            //leer_SD();
-            //Inicia_Pantalla();
             mem_mode_energy = Ahorro; // Estado energia anterior
             mode_energy = Normal; // DESACTIVADO Ahorro de energia
             init_scan = start; // para que en loop() inicialice timer
@@ -1572,12 +1618,8 @@ void setup() {
                 ez.clock.tz.setLocation(F("Europe/Madrid"));
                 Inicia_Pantalla();
             }
-            getTimeScan();
-            //ez.canvas.println("Ahorro Energia Desactivado");
-            //ez.canvas.println(" ");
-            //ez.canvas.println("   DataLogger iniciado");
-            //ez.canvas.println("   cada" + (String)campos [9]);
             #ifdef DEBUG_DATALOGGER
+                getTimeScan();
                 Serial.println("SETUP EXT0: intervalo = " + (String)intervalo);
                 Serial.println("SETUP EXT0: scan " + (String)campos [9]);
             #endif
@@ -1642,11 +1684,12 @@ void loop() {
                     Serial.println("LOOP: scan = " + (String)campos [9]);
                     Serial.println("LOOP: mem_init_scan = " + (String)mem_mode_energy);
                 #endif
+                Level_Battery(); //Actualizo nivel Batería
                 timer.deleteTimer(numTimer);
                 numTimer = timer.setInterval(intervalo, getData); // recoge y graba datos en SD cada intervalo
-                if (mem_mode_energy == Ahorro){ // ya estaba iniciado el DataLogger
+                if ((mem_mode_energy == Ahorro) && (save_SD)){ // ya estaba iniciado el DataLogger y grabando en SD
                     Inicia_Pantalla();
-                    leer_SD();
+                    leer_SD(); // Muestra los últimos registros en pantalla
                     show_Data();
                 }
                 else{ // iniciado DataLogger por primera vez 
@@ -1658,11 +1701,13 @@ void loop() {
                 timer.disable(numTimer);
                 write_Pantalla("Parado DataLogger " + (String)campos [8]);   
                 mode_energy = Normal;
+                mem_mode_energy = Normal;
             }
             init_scan = run; // run variable control DataLogger
             scanButton(); // Gestión acciones de los botones
             break;
     }
+    
 }
 
 
