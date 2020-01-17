@@ -20,8 +20,8 @@
 */
 
 //Descomenta para DEBUG Blynk por puerto serie
-#define BLYNK_DEBUG
-#define BLYNK_PRINT Serial
+//#define BLYNK_DEBUG
+//#define BLYNK_PRINT Serial
 
 // Descomenta para relizar DEBUG por puerto serie
 #define DEBUG_DATALOGGER
@@ -143,11 +143,11 @@ char registro_4 [20];
 
 //  --------------  Variable control encabezados DataLogger
 ////{campos[0], campos[1],campos[2], campos[3],campos[4], campos[5],
-//campos[6], campos[7],campos[8], campos[9]}
-//{encabezado reg_1, unidad reg_1,encabezado reg_2, unidad reg_2,encabezado reg_3, unidad reg_3,
-// encabezado reg_4, unidad reg_4,sensor detectado, escaneo}
+//campos[6], campos[7],campos[8], campos[9], campos[10], campos[11]}
+//{encabezado reg_1, unidad reg_1, encabezado reg_2, unidad reg_2, encabezado reg_3, unidad reg_3,
+// encabezado reg_4, unidad reg_4, sensor detectado, escaneo, /0}
 
-char const *campos[10]; 
+char const * campos[10]; 
 // ---------------------------------------------------
 
 // Terminal de la app BLE BLYNK
@@ -158,17 +158,22 @@ WidgetTerminal terminal (V10);
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 // Actualiza porcentaje bateria
-void Level_Battery(){ // Controlador de carga Bateria IP5306_I2C chip del M5STACK
+void level_Battery(){ // Controlador de carga Bateria IP5306_I2C chip del M5STACK
+    if (M5.Power.isCharging()){
+        ez.header.show("DATALOGGER CHARGING"); // Datalogger cargando
+    }
+    else{
     battery = M5.Power.getBatteryLevel();
-    ez.header.show("DATA LOGGER   " + (String)battery + "%");
+    ez.header.show("DATALOGGER   " + (String)battery + "%");
     if (estado_BLE)
         Blynk.virtualWrite(V6,battery); 
+    }
 }
 
 // Inicio Pantalla Vacia y botones disponibles
-void Inicia_Pantalla(){
+void inicia_Pantalla(){
     ez.screen.clear();
-    Level_Battery();
+    level_Battery();
     ez.buttons.show("SETUP # # START # SLEEP # STOP # OFF");
     ez.canvas.y(ez.canvas.height()/5);
     ez.canvas.x(15);
@@ -178,7 +183,7 @@ void Inicia_Pantalla(){
 // Escribe mensajes en Pantalla
 void write_Pantalla(String text){
     ez.screen.clear();
-    Level_Battery();
+    level_Battery();
     ez.buttons.show("SETUP # # START # SLEEP # STOP # OFF");
     ez.canvas.lmargin(30);
     ez.canvas.y(ez.canvas.height()/2);
@@ -186,28 +191,27 @@ void write_Pantalla(String text){
     ez.canvas.print(text);
 } 
 
-// Actualiza el intervalo de escaneo para mostralo por pantalla
+// Actualiza campos [9] = intervalo de escaneo para mostralo por pantalla
 void getTimeScan(){
+    uint32_t scan_intervalo = intervalo / 60000;
     if (intervalo == 30000){
         campos [9] =" 30 seg";
     }
-    if (intervalo == 60000){
-        campos [9] =" 60 seg";
-    }
-    if (intervalo == 300000){
-        campos [9] =" 5 min";
-    }
-    if (intervalo == 900000){
-        campos [9] =" 15 min";
-    }      
-    if (intervalo == 1800000){
-        campos [9] =" 30 min";
+    else{
+        String scan  = " " + (String)scan_intervalo + " min"; 
+        char * str = (char *)malloc(scan.length() + 1);
+        scan.toCharArray(str, scan.length() + 1);
+        campos [9] = str;
+        #ifdef DEBUG_DATALOGGER
+            Serial.print("getTimeScan()");
+            Serial.println(campos [9]);
+        #endif
     }
 }
 
 // Muestras los datos registrados en pantalla y actualiza porcentaje de bateria
 void show_Data(){
-    Level_Battery();
+    level_Battery();
     ez.canvas.clear();
     ez.canvas.font(&FreeMonoBold12pt7b);
     ez.canvas.y(ez.canvas.height()/6);
@@ -255,443 +259,112 @@ void show_Data(){
     }
 }
 
-// Menu de configuración BLE del DataLogger
-void submenu_BLE(){
-    ezMenu myMenu_BLE("Configuracion BLE");
-    myMenu_BLE.addItem("BLE - START");
-    myMenu_BLE.addItem("BLE - STOP");
-    switch (myMenu_BLE.runOnce()) {
-        case 1: // Se Activa BLE
-            if((esp_bt_controller_get_status() == ESP_BT_CONTROLLER_STATUS_IDLE)||
-                (esp_bt_controller_get_status() == ESP_BT_CONTROLLER_STATUS_NUM)){
-                btStart(); //Inicio Bluetooth
-                Blynk.setDeviceName("DataLogger");
-                Blynk.begin(auth); // Inicio BLYNK
-                while (Blynk.connect(5000U) == false) {}
-                Blynk.virtualWrite(V0,0); //DataLogger Parado
-                Blynk.virtualWrite(V5,1); //Escaneo inicial 30 seg
-                Blynk.virtualWrite(V7,0); //DataLogger Low Energy OFF
-                Blynk.virtualWrite(V8,0); // Espera conexión BLE
-                terminal.clear();
-                menu = false;
-                estado_BLE = true;   
-            }         
-            break;
-        case 2: // Se DesActiva BLE
-            btStop();
-            menu = false;
-            estado_BLE = false;
-            break;
-    }
-}
-
-// Menu de configuración intervalo de escaneo del DataLogger
-void submenu1_SCAN(){
-    ezMenu myMenu1("Configura intervalo de escaneo");
-    myMenu1.addItem("30 seg");
-    myMenu1.addItem("60 seg");
-    myMenu1.addItem("5 min");
-    myMenu1.addItem("15 min");
-    myMenu1.addItem("30 min");
-    switch (myMenu1.runOnce()) {
-        case 1: // 30 seg
-  	        if (timer.isEnabled(numTimer)){
-                ez.msgBox("Configura intervalo de escaneo", "Antes, STOP DataLogger");
-                Inicia_Pantalla();
-                show_Data();
-            }
-            else{
-                intervalo = 30000;
-                campos [9] =" 30 seg";
-                if (estado_BLE)
-                    Blynk.virtualWrite(V5,1); 
-                Inicia_Pantalla();
-            }
-            menu = false;
-            break;
-        case 2: // 60 seg
-            if (timer.isEnabled(numTimer)){
-                ez.msgBox("Configura intervalo de ecampos escaneo", "Antes, STOP DataLogger");
-                Inicia_Pantalla();
-                show_Data();
-            }
-            else{
-                intervalo = 60000;
-                campos [9] =" 60 seg";
-                if (estado_BLE)
-                    Blynk.virtualWrite(V5,2);
-                Inicia_Pantalla();
-            }
-            menu = false;
-            break;
-        case 3: // 5 min
-  	        if (timer.isEnabled(numTimer)){
-                ez.msgBox("Configura intervalo de escaneo", "Antes, STOP DataLogger");
-                Inicia_Pantalla();
-                show_Data();
-            }
-            else{
-                intervalo = 300000;
-                campos [9] =" 5 min";
-                if (estado_BLE)
-                    Blynk.virtualWrite(V5,3);
-                Inicia_Pantalla();
-            }
-            menu = false;
-            break;
-        case 4: // 15 min
-            if (timer.isEnabled(numTimer)){
-                ez.msgBox("Configura intervalo de escaneo", "Antes, STOP DataLogger");
-                Inicia_Pantalla();
-                show_Data();
-            }
-            else{
-                intervalo = 900000;
-                campos [9] =" 15 min";
-                if (estado_BLE)
-                    Blynk.virtualWrite(V5,4);
-                Inicia_Pantalla();
-            }
-            menu = false;
-            break;
-        case 5: // 30 min
-  	        if (timer.isEnabled(numTimer)){
-                ez.msgBox("Configura intervalo de escaneo", "Antes, STOP DataLogger");
-                Inicia_Pantalla();
-                show_Data();
-            }
-            else{
-                intervalo = 1800000;
-                campos [9] =" 30 min";
-                if (estado_BLE)
-                    Blynk.virtualWrite(V5,5);
-                Inicia_Pantalla();
-            }
-            menu = false;
-            break;
-    }
-}
-
-// Borrado archivo y actualización encabezados archivo datalog.csv de la SD
-void borrado_encabezado_SD(){
-    if(!(SD.remove("/datalog.csv"))){ // Borrado archivo datalog.csv de la SD
-        ez.msgBox("Borrar SD - SI", "Error al borrar el archivo en tarjeta SD");
-        Inicia_Pantalla();
+// REcupera los últimos registros de la tarjeta SD y los muestra en pantalla
+void leer_SD(){ 
+    String cadena = "";
+    int Posicion = 0; // Posición de lectura archivo datalog.csv
+    myFile = SD.open("/datalog.csv", FILE_READ);//abrimos  el archivo y añadimos datos
+    if (myFile) { 
         #ifdef DEBUG_DATALOGGER
-            Serial.println("Error al borrar el archivo en tarjeta SD");
+            Serial.println("Leyendo datos de Tarjeta SD .....");
         #endif
-    }           
-    myFile = SD.open("/datalog.csv", FILE_WRITE); // Creado archivo datalog.csv en la SD
-    if (myFile) {
-        switch(sensor) { // Creación de encabezados archivo datalog.csv
-            case BME280:  // Se crea encabezado BME280 en datalog.csv
-                myFile.println("Dia WIFI,Fecha Hora WIFI,Fecha Hora RTC,Temperatura (ºC),Humedad (%),Presion (mbar),Altitud (m), Sensor BME280");
-                myFile.close();
-                ez.msgBox("Borrar SD - SI", "Datos Borrados de tarjeta SD");
-                Inicia_Pantalla();
+        //Obtengo longtud en bytes del encabezado del sensor
+        int Bytes_encab = 0;
+        Posicion = Bytes_encab;
+        myFile.seek(Posicion); 
+        while (myFile.available()) {
+            char caracter = myFile.read();
+            if((caracter==10)||(caracter==13)){ //ASCII de nueva de línea o Retorno de carro  
+                Bytes_encab = Posicion+2;
                 break;
-            case BME680:  // Se crea encabezado BME680 en datalog.csv
-                myFile.println("Dia WIFI,Fecha Hora WIFI,Fecha Hora RTC,Temperatura (ºC),Humedad (%),Presion (mbar),Gas VOC (ohmios), Sensor BME680");
-                myFile.close();
-                ez.msgBox("Borrar SD - SI", "Datos Borrados de tarjeta SD");
-                Inicia_Pantalla();
-                break;
-            case LM75:  // Se crea encabezado LM75 en datalog.csv
-                myFile.println("Dia WIFI,Fecha Hora WIFI,Fecha Hora RTC,Temperatura (ºC), Sensor LM75");
-                myFile.close();
-                ez.msgBox("Borrar SD - SI", "Datos Borrados de tarjeta SD");
-                Inicia_Pantalla();
-                break;
-            case lux_BH1750:  // Se crea encabezado lux_BH1750 en datalog.csv
-                myFile.println("Dia WIFI,Fecha Hora WIFI,Fecha Hora RTC,Nivel Luminosidad (lux), Sensor BH1750");
-                myFile.close();
-                ez.msgBox("Borrar SD - SI", "Datos Borrados de tarjeta SD");
-                Inicia_Pantalla();
-                break;
-            case VEML6075:  // Se crea encabezado VEML6075 en datalog.csv
-                myFile.println("Dia WIFI,Fecha Hora WIFI,Fecha Hora RTC,indice UV,, Sensor VEML6075");
-                myFile.close();
-                ez.msgBox("Borrar SD - SI", "Datos Borrados de tarjeta SD");
-                Inicia_Pantalla();
-                break;
-            case TSL2541:  // Se crea encabezado TSL2541 en datalog.csv
-                myFile.println("Dia WIFI,Fecha Hora WIFI,Fecha Hora RTC,Nivel Luminosidad (lux), Sensor TSL2541");
-                myFile.close();
-                ez.msgBox("Borrar SD - SI", "Datos Borrados de tarjeta SD");
-                Inicia_Pantalla();
-                break;
-            case SHT21:     // Se crea encabezado SHT21 en datalog.csv
-                myFile.println("Dia WIFI,Fecha Hora WIFI,Fecha Hora RTC,Temperatura (ºC),Humedad (%), Sensor SHT21");
-                myFile.close();
-                ez.msgBox("Borrar SD - SI", "Datos Borrados de tarjeta SD");
-                Inicia_Pantalla();
-                break;
-            case AM2320:    // Se crea encabezado AM2320 en datalog.csv
-                myFile.println("Dia WIFI,Fecha Hora WIFI,Fecha Hora RTC,Temperatura (ºC),Humedad (%), Sensor AM2320");
-                myFile.close();
-                ez.msgBox("Borrar SD - SI", "Datos Borrados de tarjeta SD");
-                Inicia_Pantalla();
-                break;
+            }
+            Posicion++;
         }
-    }
-    else{
-        ez.msgBox("Borrar SD - SI", "Error al crear archivo datalog.csv en tarjeta SD");
-        Inicia_Pantalla();
+        int totalBytes = myFile.size();
         #ifdef DEBUG_DATALOGGER
-            Serial.println("Error al crear archivo datalog.csv en tarjeta SD");
+            Serial.println("Bytes encabezado: " + (String)Bytes_encab);
+            Serial.println("TotalBytes: " + (String)totalBytes);
         #endif
-    }
-}
-
-// Menu Borrar SD
-void submenu2_SD(){
-    ezMenu myMenu2("Configuracion SD");
-    myMenu2.addItem("Borrar SD - SI");
-    myMenu2.addItem("Grabar Datos SD SI/NO");
-    myMenu2.addItem("EXIT");
-    switch (myMenu2.runOnce()) {
-        case 1: // Se Borra fichero con datos y se crea de nuevo
-            if (timer.isEnabled(numTimer)){
-                ez.msgBox("Borrar SD - SI", "Antes, STOP DataLogger");
-                Inicia_Pantalla();
-                show_Data();
-            }
-            else{
-                // Borrado archivo datalog.csv y actulización encabezados de la SD
-                borrado_encabezado_SD();
-            }
-            menu = false;
-            break;
-        case 2: // Grabar Datos en SD SI/NO
-            if (timer.isEnabled(numTimer)){
-                ez.msgBox("Grabar Datos en SD SI/NO", "Antes, STOP DataLogger");
-                Inicia_Pantalla();
-                show_Data();
-            }
-            else{
-                ezMenu myMenu22("Grabar Datos SD");
-                myMenu22.addItem("Grabar Datos - SI");
-                myMenu22.addItem("Grabar Datos - NO");
-                switch (myMenu22.runOnce()) {
-                    case 1: // Grabar Datos - SI
-                        save_SD = true;
-                        Inicia_Pantalla();
-                        break;  
-                    case 2: // Grabar Datos - NO
-                        save_SD = false;
-                        Inicia_Pantalla();
-                        break; 
+        // Si hay datos los recupero
+        if (totalBytes>Bytes_encab){
+            // Busco cuantos bytes ocupan los últimos registros
+            // Me posiciono en la última posición con datos del archivo datalog.csv
+            Posicion = totalBytes - 3;
+            myFile.seek(Posicion); 
+            while (myFile.available()) {
+                char caracter = myFile.read();
+                if((caracter==00)||(caracter==10)||(caracter==13)){ //ASCII de nueva de línea  o Retorno de carro       
+                    break;
+                }
+                else{
+                    Posicion = Posicion - 1;
+                    myFile.seek(Posicion);
                 }
             }
-            menu = false;
-            break;
-        case 3: // EXIT
-            if (timer.isEnabled(numTimer)){
-                Inicia_Pantalla();
-                show_Data();
-            }
-            else
-                Inicia_Pantalla();
-            menu = false;
-            break;
-    }
-}
-
-// Menu Configuración General DAtaLoggger
-void submenu3_CONFIG(){
-    ez.settings.menu();
-    red_wifi = ez.wifi.autoConnect; // Compruebo WIFI
-    if(red_wifi){
-        ez.clock.tz.setLocation(F("Europe/Madrid"));
-        ez.clock.waitForSync();
-    } 
-    if (timer.isEnabled(numTimer)){ //Iniciado DataLogger
-        Inicia_Pantalla();
-        show_Data();
-    }
-    else
-        Inicia_Pantalla();
-}
-
-// Menu configuración RTC
-void submenu4_RTC(){
-    String Fecha, Hora, m;
-    int mes;
-    ezMenu myMenu4("Configuracion RTC");
-    myMenu4.addItem("Fecha Hora Manual");
-    myMenu4.addItem("Fecha Hora WIFI");
-    myMenu4.addItem("EXIT");
-
-    switch (myMenu4.runOnce()) {
-        case 1: // Fijar a fecha y hora específica.   
-            // sample input: date = "Dec 26 2009", 
-            Fecha = (ez.textInput("Fecha: ddmmaaaa"));
-            m = Fecha.substring(2, 4);
-            mes = m.toInt();
-            switch (mes) { // Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec
-                case 1:
-                    Fecha = "Jar " + Fecha.substring(0, 2) + " " + Fecha.substring(4);
-                    break;
-                case 2:
-                    Fecha = "Feb " + Fecha.substring(0, 2) + " " + Fecha.substring(4);
-                    break;
-                case 3:
-                    Fecha = "Mar " + Fecha.substring(0, 2) + " " + Fecha.substring(4);
-                    break;
-                case 4:
-                    Fecha = "Mar " + Fecha.substring(0, 2) + " " + Fecha.substring(4);
-                    break;
-                case 5:
-                    Fecha = "Apr " + Fecha.substring(0, 2) + " " + Fecha.substring(4);
-                    break;
-                case 6:
-                    Fecha = "Jun " + Fecha.substring(0, 2) + " " + Fecha.substring(4);
-                    break;
-                case 7:
-                    Fecha = "Jul " + Fecha.substring(0, 2) + " " + Fecha.substring(4);
-                    break;
-                case 8:
-                    Fecha = "Aug " + Fecha.substring(0, 2) + " " + Fecha.substring(4);
-                    break;
-                case 9:
-                    Fecha = "Sep " + Fecha.substring(0, 2) + " " + Fecha.substring(4);
-                    break;
-                case 10:
-                    Fecha = "Oct " + Fecha.substring(0, 2) + " " + Fecha.substring(4);
-                    break;
-                case 11:
-                    Fecha = "Nov " + Fecha.substring(0, 2) + " " + Fecha.substring(4);
-                    break;
-                case 12:
-                    Fecha = "Dec " + Fecha.substring(0, 2) + " " + Fecha.substring(4);
-                    break;
-            }
-            // ej -> time = "12:34:56"
-            Hora = (ez.textInput("Hora: hhmm"));
-            Hora = Hora.substring(0, 2) + ":" + Hora.substring(2) + ":" + "00";
             #ifdef DEBUG_DATALOGGER
-                Serial.print("Fecha: ");
-                Serial.print(Fecha);
-                Serial.print("  Hora: ");
-                Serial.println(Hora);
+                Serial.print("Bytes a Recuperar:");
+                Serial.println((String)Posicion);
             #endif
-            rtc.adjust(DateTime(Fecha.c_str(), Hora.c_str()));
-            Inicia_Pantalla();
-            menu = false;
-            break;
-        case 2: // Fijar a fecha y hora específica.   
-            if(red_wifi){
-                int F_year = myTZ.year();
-                int F_day = myTZ.day();
-                int F_month = myTZ.month();
-                int F_hour = myTZ.hour();
-                int F_minute = myTZ.minute();
-                rtc.adjust(DateTime(F_year, F_month, F_day, F_hour, F_minute, 0)); 
+            //Leemos los ultimos registros del archivo datalog.csv
+            Posicion = Posicion + 1;
+            myFile.seek(Posicion);
+            String cadena;
+            int i=0;
+            while (myFile.available()) {
+                char caracter = myFile.read();
+                if(caracter==44){ //ASCII: ',' Sa busca para encortrar los registros a recuperar
+                    switch (i) { // DIA,FECHA WIFI,FECHA RTC,registro_1,registro_2,registro_3,registro_4
+                        case 3: 
+                            cadena.toCharArray(registro_1, sizeof(registro_1));
+                            #ifdef DEBUG_DATALOGGER
+                                Serial.print("Registros_1 recuperados SD:");
+                                Serial.println(registro_1);
+                            #endif
+                            break;  
+                        case 4: 
+                            cadena.toCharArray(registro_2, sizeof(registro_2));
+                            #ifdef DEBUG_DATALOGGER
+                                Serial.print("Registros_2 recuperados SD:");
+                                Serial.println(registro_2);
+                            #endif
+                            break;
+                        case 5: 
+                            cadena.toCharArray(registro_3, sizeof(registro_3));
+                            #ifdef DEBUG_DATALOGGER
+                                Serial.print("Registros_3 recuperados SD:");
+                                Serial.println(registro_3);
+                            #endif
+                            break;
+                        case 6: 
+                            cadena.toCharArray(registro_4, sizeof(registro_4));
+                            #ifdef DEBUG_DATALOGGER
+                                Serial.print("Registros_4 recuperados SD:");
+                                Serial.println(registro_4);
+                            #endif
+                            break;
+                    }
+                    #ifdef DEBUG_DATALOGGER
+                        Serial.print("i:");
+                        Serial.println(i);
+                    #endif
+                    i++;
+                    cadena = "";
+                }
+                else{
+                    cadena = cadena + caracter;
+                }
+                if(myFile.position()==(totalBytes)){
+                    break;
+                }
             }
-            Inicia_Pantalla();
-            menu = false;
-            break;
-        case 3: // EXIT
-            Inicia_Pantalla();
-            menu = false;
-            break;
-    }
-    
-}
-
-// Menu Principal de Configuración del DataLogger
-void Config_DataLogger(){
-    menu = true;
-    ezMenu myMenu("Configuracion DataLogger");
-    myMenu.addItem("Intervalo de escaneo");
-    myMenu.addItem("Configuracion SD");
-    myMenu.addItem("Configuracion General");
-    myMenu.addItem("Configuracion RTC");
-    myMenu.addItem ("EXIT");
-    switch (myMenu.runOnce()) {
-        case 1: // Intervalo de escaneo   
-            submenu1_SCAN();
-            break;
-        case 2: // Eliminar Datos SD  
-            submenu2_SD();
-            break;
-        case 3: // Configuracion General  
-            submenu3_CONFIG();
-            break;
-        case 4: // Configuracion General  
-            submenu4_RTC();
-            break;
-        case 5: // EXIT
-            if (timer.isEnabled(numTimer)){
-                Inicia_Pantalla();
-                show_Data();
-            }
-            else
-                Inicia_Pantalla();
-            menu = false;
-            break;
-    }
-}
-
-// Gestión acciones de los botones
-void scanButton() {
-    String btn = ez.buttons.poll();
-
-    if (btn == "SETUP") Config_DataLogger();
-
-    if ((btn == "START")&&(!(timer.isEnabled(numTimer)))){
-        write_Pantalla("Iniciado DataLogger " + (String)campos [8] + "       escaneando cada" + (String)campos [9]);
-        init_scan = start;
-        mode_energy = Normal;
-        if (estado_BLE){
-            Blynk.virtualWrite(V0,init_scan);
-            Blynk.virtualWrite(V9,"");
         }
-    } 
-
-    if ((btn == "STOP")&&(timer.isEnabled(numTimer))){
-        write_Pantalla("Parado DataLogger " + (String)campos [8]);   
-        init_scan = stop;
-        mode_energy = Normal;
-        if (estado_BLE)
-            Blynk.virtualWrite(V0,init_scan);
-    } 
-
-    if (btn == "OFF"){
-        M5.Power.powerOFF();
+        myFile.close(); //cerramos el archivo
     }
-
-    if ((btn == "SLEEP")&&(timer.isEnabled(numTimer))){
-        mode_energy = Ahorro;
-        if (estado_BLE)
-            Blynk.virtualWrite(V7,mode_energy);
-        //Sueño profundo ESP32 del M5STACK
-        if (red_wifi){ // Desconectamos WIFI si esta activo
-            esp_wifi_disconnect();
-            esp_wifi_stop();
-        }
-        if (estado_BLE){// Desconectamos BLE si estaba activo
-            esp_bt_controller_disable();
-        }
-        M5.Power.deepSleep(intervalo*uS_to_S_Factor);
+    else{
+        #ifdef DEBUG_DATALOGGER	
+            Serial.println("Error al abrir el archivo datalog.csv");
+        #endif
     }
-    if (btn == "Yes") {
-        // Borrado archivo datalog.csv y actulización encabezados de la SD
-        borrado_encabezado_SD();
-        write_Pantalla("Datalogger y tarjeta SD                preparados para sensor " + (String)campos [8]); 
-    }
-    if (btn == "No") {
-        // Borrado archivo datalog.csv y actulización encabezados de la SD
-        write_Pantalla("Datalogger preparado para           sensor " + (String)campos [8]); 
-    }
-}
-
-//Ejecución de eventos asociados
-uint16_t Programa_Eventos(){
-    timer.run(); // Inicio SimpleTimer para la ejecución de funciones
-    if (estado_BLE)
-        Blynk.run(); // Inicio Blynk
-    return refresco; // retorna el intervalo para su nueva ejecución
 }
 
 // Actualización registros app BLYNK
@@ -744,97 +417,516 @@ void sensor_display_Blink(){
     }
 }
 
-// REcupera los últimos registros de la tarjeta SD y los muestra en pantalla
-void leer_SD(){ 
-    String cadena = "";
-    int Posicion = 0; // Posición de lectura archivo datalog.csv
-    myFile = SD.open("/datalog.csv", FILE_READ);//abrimos  el archivo y añadimos datos
-    if (myFile) { 
-        #ifdef DEBUG_DATALOGGER
-            Serial.println("Leyendo datos de Tarjeta SD .....");
-        #endif
-        int totalBytes = myFile.size();
-        #ifdef DEBUG_DATALOGGER
-            Serial.print("totalBytes: ");
-            Serial.println((String)totalBytes);
-        #endif
-        // Busco cuantos bytes ocupan los últimos registros
-        // Me posiciono en la última posición con datos del archivo datalog.csv
-        Posicion = totalBytes - 3;
-        myFile.seek(Posicion); 
-        while (myFile.available()) {
-            char caracter = myFile.read();
-            if((caracter==00)||(caracter==10)||(caracter==13)){ //ASCII de nueva de línea  o Retorno de carro       
-                break;
-            }
-            else{
-                Posicion = Posicion - 1;
-                myFile.seek(Posicion);
-            }
-        }
-        #ifdef DEBUG_DATALOGGER
-            Serial.print("Bytes a Recuperar:");
-            Serial.println((String)Posicion);
-        #endif
-        //Leemos los ultimos registros del archivo datalog.csv
-        Posicion = Posicion + 1;
-        myFile.seek(Posicion);
-        String cadena;
-        int i=0;
-        while (myFile.available()) {
-            char caracter = myFile.read();
-            if(caracter==44){ //ASCII: ',' Sa busca para encortrar los registros a recuperar
-                switch (i) { // DIA,FECHA WIFI,FECHA RTC,registro_1,registro_2,registro_3,registro_4
-                    case 3: 
-                        cadena.toCharArray(registro_1, sizeof(registro_1));
-                        #ifdef DEBUG_DATALOGGER
-                            Serial.print("Registros_1 recuperados SD:");
-                            Serial.println(registro_1);
-                        #endif
-                        break;  
-                    case 4: 
-                        cadena.toCharArray(registro_2, sizeof(registro_2));
-                        #ifdef DEBUG_DATALOGGER
-                            Serial.print("Registros_2 recuperados SD:");
-                            Serial.println(registro_2);
-                        #endif
-                        break;
-                    case 5: 
-                        cadena.toCharArray(registro_3, sizeof(registro_3));
-                        #ifdef DEBUG_DATALOGGER
-                            Serial.print("Registros_3 recuperados SD:");
-                            Serial.println(registro_3);
-                        #endif
-                        break;
-                    case 6: 
-                        cadena.toCharArray(registro_4, sizeof(registro_4));
-                        #ifdef DEBUG_DATALOGGER
-                            Serial.print("Registros_4 recuperados SD:");
-                            Serial.println(registro_4);
-                        #endif
-                        break;
+// Salida de todos los Menus del DataLogger
+void exit_menu(){
+    if (timer.isEnabled(numTimer)){
+        inicia_Pantalla();
+        show_Data();
+    }
+    else
+        inicia_Pantalla();
+    menu = false;
+}
+
+// Menu de configuración BLE del DataLogger
+void submenu_BLE(){
+    ezMenu myMenu_BLE("Configuracion BLE");
+    myMenu_BLE.addItem("BLE - START");
+    myMenu_BLE.addItem("BLE - STOP");
+    myMenu_BLE.addItem("BLE - EXIT");
+    switch (myMenu_BLE.runOnce()) {
+        case 1: // Se Activa BLE
+            if((esp_bt_controller_get_status() == ESP_BT_CONTROLLER_STATUS_IDLE)||
+                (esp_bt_controller_get_status() == ESP_BT_CONTROLLER_STATUS_NUM)){
+                btStart(); //Inicio Bluetooth
+                Blynk.setDeviceName("DataLogger");
+                Blynk.begin(auth); // Inicio BLYNK
+                while (Blynk.connect(5000U) == false) {}
+                // Si el Datalogger estaba iniciado muestra los últimos datos registrados
+                if (timer.isEnabled(numTimer)){
+                    Blynk.virtualWrite(V0,1); //DataLogger Activado
+                    leer_SD(); // Recupera los últimos registros de la SD
+                    sensor_display_Blink(); // Actualiza  V1, V2, V3 y V4 Registros 1, 2, 3 y 4
+                    //Actualiza V5
+                    if(intervalo == 30000)// 30 seg
+                        Blynk.virtualWrite(V5,1);
+                    if(intervalo == 60000)// 1 min
+                        Blynk.virtualWrite(V5,2);
+                    if(intervalo == 300000)// 5 min
+                        Blynk.virtualWrite(V5,3);
+                    if(intervalo == 90000)// 15 min
+                        Blynk.virtualWrite(V5,4);
+                    // Resto intervalos
+                    if((intervalo != 30000)&&(intervalo != 60000)&&
+                        (intervalo != 300000)&&(intervalo != 90000)){
+                        String inter_min = (String)(intervalo / 60000);
+                        inter_min = inter_min + " min";
+                        Blynk.setProperty(V5,"labels","30 seg","1 min","5 min","15 min", inter_min);
+                        Blynk.virtualWrite(V5,5);   
+                    }
+                    inicia_Pantalla();
+                    show_Data();
                 }
-                #ifdef DEBUG_DATALOGGER
-                    Serial.print("i:");
-                    Serial.println(i);
-                #endif
-                i++;
-                cadena = "";
+                // No iniciado el Datalogger se muestra pantalla inicial
+                else{
+                    Blynk.virtualWrite(V0,0); //DataLogger Parado
+                    Blynk.virtualWrite(V1,0); //Registro_1
+                    Blynk.virtualWrite(V2,0); //Registro_2
+                    Blynk.virtualWrite(V3,0); //Registro_3
+                    Blynk.virtualWrite(V4,0); //Registro_4
+                    Blynk.setProperty(V5,"labels","30 seg","1 min","5 min","15 min", "XX min");
+                    Blynk.virtualWrite(V5,1); //Escaneo inicial 30 seg
+                    Blynk.virtualWrite(V7,0); //DataLogger Low Energy OFF
+                    Blynk.virtualWrite(V8,0); // Espera conexión BLE
+                    terminal.clear();
+                }
+                menu = false;
+                estado_BLE = true;   
+            }         
+            break;
+        case 2: // Se DesActiva BLE
+            btStop();
+            menu = false;
+            estado_BLE = false;
+            break;
+        case 3: // EXIT
+            exit_menu();
+            break;
+    }
+}
+
+// Menu de configuración intervalo de escaneo del DataLogger
+void submenu1_SCAN(){
+    ezMenu myMenu1("Configura intervalo de escaneo");
+    myMenu1.addItem("30 seg");
+    myMenu1.addItem("1 min");
+    myMenu1.addItem("5 min");
+    myMenu1.addItem("15 min");
+    myMenu1.addItem("Intervalo escaneo en min");
+    myMenu1.addItem("EXIT");
+    String scaneo;
+
+    switch (myMenu1.runOnce()) {
+        case 1: // 30 seg
+  	        if (timer.isEnabled(numTimer)){
+                ez.msgBox("Configura intervalo de escaneo", "Antes, STOP DataLogger");
+                inicia_Pantalla();
+                show_Data();
             }
             else{
-                cadena = cadena + caracter;
+                intervalo = 30000;
+                campos [9] =" 30 seg";
+                if (estado_BLE)
+                    Blynk.virtualWrite(V5,1); 
+                inicia_Pantalla();
             }
-            if(myFile.position()==(totalBytes)){
+            menu = false;
+            break;
+        case 2: // 60 seg
+            if (timer.isEnabled(numTimer)){
+                ez.msgBox("Configura intervalo de escaneo", "Antes, STOP DataLogger");
+                inicia_Pantalla();
+                show_Data();
+            }
+            else{
+                intervalo = 60000;
+                getTimeScan();
+                if (estado_BLE)
+                    Blynk.virtualWrite(V5,2);
+                inicia_Pantalla();
+            }
+            menu = false;
+            break;
+        case 3: // 5 min
+  	        if (timer.isEnabled(numTimer)){
+                ez.msgBox("Configura intervalo de escaneo", "Antes, STOP DataLogger");
+                inicia_Pantalla();
+                show_Data();
+            }
+            else{
+                intervalo = 300000;
+                getTimeScan();
+                if (estado_BLE)
+                    Blynk.virtualWrite(V5,3);
+                inicia_Pantalla();
+            }
+            menu = false;
+            break;
+        case 4: // 15 min
+            if (timer.isEnabled(numTimer)){
+                ez.msgBox("Configura intervalo de escaneo", "Antes, STOP DataLogger");
+                inicia_Pantalla();
+                show_Data();
+            }
+            else{
+                intervalo = 900000;
+                getTimeScan();
+                if (estado_BLE)
+                    Blynk.virtualWrite(V5,4);
+                inicia_Pantalla();
+            }
+            menu = false;
+            break;
+        case 5: // Intervalo escaneo en seg
+  	        if (timer.isEnabled(numTimer)){
+                ez.msgBox("Configura intervalo de escaneo", "Antes, STOP DataLogger");
+                inicia_Pantalla();
+                show_Data();
+            }
+            else{
+                scaneo = (ez.textInput("Intervalo escaneo en min"));
+                intervalo = scaneo.toInt();
+                if (intervalo == 0){
+                    intervalo = 30000; // 30 seg por defecto
+                    ez.msgBox("Intervalo escaneo", "Error al introducir el intervalo de escaneo. Intentalo de nuevo.");
+                }
+                else{
+                    scaneo = " " + scaneo + " min";
+                    intervalo = intervalo * 60000;
+                    getTimeScan();
+                    if (estado_BLE){
+                        Blynk.setProperty(V5,"labels","30 seg","1 min","5 min","15 min", scaneo);
+                        Blynk.virtualWrite(V5,5);
+                    }
+                    ez.msgBox("Intervalo escaneo", "Introducido " + scaneo + " como intervalo de escaneo");
+                    inicia_Pantalla();
+                }
+            }
+            menu = false;
+            break;
+        case 6: // EXIT
+            exit_menu();
+            break;
+    }
+}
+
+// Borrado archivo y actualización encabezados archivo datalog.csv de la SD
+void borrado_encabezado_SD(){
+    if(!(SD.remove("/datalog.csv"))){ // Borrado archivo datalog.csv de la SD
+        ez.msgBox("Borrar SD - SI", "Error al borrar el archivo en tarjeta SD");
+        inicia_Pantalla();
+        #ifdef DEBUG_DATALOGGER
+            Serial.println("Error al borrar el archivo en tarjeta SD");
+        #endif
+    }           
+    myFile = SD.open("/datalog.csv", FILE_WRITE); // Creado archivo datalog.csv en la SD
+    if (myFile) {
+        switch(sensor) { // Creación de encabezados archivo datalog.csv
+            case BME280:  // Se crea encabezado BME280 en datalog.csv
+                myFile.println("Dia WIFI,Fecha Hora WIFI,Fecha Hora RTC,Temperatura (ºC),Humedad (%),Presion (mbar),Altitud (m), Sensor BME280");
+                myFile.close();
+                ez.msgBox("Borrar SD - SI", "Datos Borrados de tarjeta SD");
+                inicia_Pantalla();
                 break;
-            }
+            case BME680:  // Se crea encabezado BME680 en datalog.csv
+                myFile.println("Dia WIFI,Fecha Hora WIFI,Fecha Hora RTC,Temperatura (ºC),Humedad (%),Presion (mbar),Gas VOC (ohmios), Sensor BME680");
+                myFile.close();
+                ez.msgBox("Borrar SD - SI", "Datos Borrados de tarjeta SD");
+                inicia_Pantalla();
+                break;
+            case LM75:  // Se crea encabezado LM75 en datalog.csv
+                myFile.println("Dia WIFI,Fecha Hora WIFI,Fecha Hora RTC,Temperatura (ºC), Sensor LM75");
+                myFile.close();
+                ez.msgBox("Borrar SD - SI", "Datos Borrados de tarjeta SD");
+                inicia_Pantalla();
+                break;
+            case lux_BH1750:  // Se crea encabezado lux_BH1750 en datalog.csv
+                myFile.println("Dia WIFI,Fecha Hora WIFI,Fecha Hora RTC,Nivel Luminosidad (lux), Sensor BH1750");
+                myFile.close();
+                ez.msgBox("Borrar SD - SI", "Datos Borrados de tarjeta SD");
+                inicia_Pantalla();
+                break;
+            case VEML6075:  // Se crea encabezado VEML6075 en datalog.csv
+                myFile.println("Dia WIFI,Fecha Hora WIFI,Fecha Hora RTC,indice UV,, Sensor VEML6075");
+                myFile.close();
+                ez.msgBox("Borrar SD - SI", "Datos Borrados de tarjeta SD");
+                inicia_Pantalla();
+                break;
+            case TSL2541:  // Se crea encabezado TSL2541 en datalog.csv
+                myFile.println("Dia WIFI,Fecha Hora WIFI,Fecha Hora RTC,Nivel Luminosidad (lux), Sensor TSL2541");
+                myFile.close();
+                ez.msgBox("Borrar SD - SI", "Datos Borrados de tarjeta SD");
+                inicia_Pantalla();
+                break;
+            case SHT21:     // Se crea encabezado SHT21 en datalog.csv
+                myFile.println("Dia WIFI,Fecha Hora WIFI,Fecha Hora RTC,Temperatura (ºC),Humedad (%), Sensor SHT21");
+                myFile.close();
+                ez.msgBox("Borrar SD - SI", "Datos Borrados de tarjeta SD");
+                inicia_Pantalla();
+                break;
+            case AM2320:    // Se crea encabezado AM2320 en datalog.csv
+                myFile.println("Dia WIFI,Fecha Hora WIFI,Fecha Hora RTC,Temperatura (ºC),Humedad (%), Sensor AM2320");
+                myFile.close();
+                ez.msgBox("Borrar SD - SI", "Datos Borrados de tarjeta SD");
+                inicia_Pantalla();
+                break;
         }
-        myFile.close(); //cerramos el archivo
     }
     else{
-        #ifdef DEBUG_DATALOGGER	
-            Serial.println("Error al abrir el archivo datalog.csv");
+        ez.msgBox("Borrar SD - SI", "Error al crear archivo datalog.csv en tarjeta SD");
+        inicia_Pantalla();
+        #ifdef DEBUG_DATALOGGER
+            Serial.println("Error al crear archivo datalog.csv en tarjeta SD");
         #endif
     }
+}
+
+// Menu Borrar SD
+void submenu2_SD(){
+    ezMenu myMenu2("Configuracion SD");
+    myMenu2.addItem("Borrar SD - SI");
+    myMenu2.addItem("Grabar Datos SD SI/NO");
+    myMenu2.addItem("EXIT");
+    switch (myMenu2.runOnce()) {
+        case 1: // Se Borra fichero con datos y se crea de nuevo
+            if (timer.isEnabled(numTimer)){
+                ez.msgBox("Borrar SD - SI", "Antes, STOP DataLogger");
+                inicia_Pantalla();
+                show_Data();
+            }
+            else{
+                // Borrado archivo datalog.csv y actulización encabezados de la SD
+                borrado_encabezado_SD();
+            }
+            menu = false;
+            break;
+        case 2: // Grabar Datos en SD SI/NO
+            if (timer.isEnabled(numTimer)){
+                ez.msgBox("Grabar Datos en SD SI/NO", "Antes, STOP DataLogger");
+                inicia_Pantalla();
+                show_Data();
+            }
+            else{
+                ezMenu myMenu22("Grabar Datos SD");
+                myMenu22.addItem("Grabar Datos - SI");
+                myMenu22.addItem("Grabar Datos - NO");
+                switch (myMenu22.runOnce()) {
+                    case 1: // Grabar Datos - SI
+                        save_SD = true;
+                        inicia_Pantalla();
+                        break;  
+                    case 2: // Grabar Datos - NO
+                        save_SD = false;
+                        inicia_Pantalla();
+                        break; 
+                }
+            }
+            menu = false;
+            break;
+        case 3: // EXIT
+            exit_menu();
+            break;
+    }
+}
+
+// Menu Configuración General DAtaLoggger
+void submenu3_CONFIG(){
+    ez.settings.menu();
+    red_wifi = ez.wifi.autoConnect; // Compruebo WIFI
+    if(red_wifi){
+        ez.clock.tz.setLocation(F("Europe/Madrid"));
+        ez.clock.waitForSync();
+    } 
+    if (timer.isEnabled(numTimer)){ //Iniciado DataLogger
+        inicia_Pantalla();
+        show_Data();
+    }
+    else
+        inicia_Pantalla();
+}
+
+// Menu configuración RTC
+void submenu4_RTC(){
+    String Fecha, Hora, m;
+    int mes;
+    ezMenu myMenu4("Configuracion RTC");
+    myMenu4.addItem("Fecha Hora Manual");
+    myMenu4.addItem("Fecha Hora WIFI");
+    myMenu4.addItem("EXIT");
+
+    switch (myMenu4.runOnce()) {
+        case 1: // Fijar a fecha y hora específica.   
+            // Fecha = 26/12/2009 -> 26122009
+            Fecha = (ez.textInput("Fecha -> ddmmaaaa"));
+            m = Fecha.substring(2, 4);
+            mes = m.toInt();
+            switch (mes) { // Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec
+                case 1:
+                    Fecha = "Jar " + Fecha.substring(0, 2) + " " + Fecha.substring(4);
+                    break;
+                case 2:
+                    Fecha = "Feb " + Fecha.substring(0, 2) + " " + Fecha.substring(4);
+                    break;
+                case 3:
+                    Fecha = "Mar " + Fecha.substring(0, 2) + " " + Fecha.substring(4);
+                    break;
+                case 4:
+                    Fecha = "Mar " + Fecha.substring(0, 2) + " " + Fecha.substring(4);
+                    break;
+                case 5:
+                    Fecha = "Apr " + Fecha.substring(0, 2) + " " + Fecha.substring(4);
+                    break;
+                case 6:
+                    Fecha = "Jun " + Fecha.substring(0, 2) + " " + Fecha.substring(4);
+                    break;
+                case 7:
+                    Fecha = "Jul " + Fecha.substring(0, 2) + " " + Fecha.substring(4);
+                    break;
+                case 8:
+                    Fecha = "Aug " + Fecha.substring(0, 2) + " " + Fecha.substring(4);
+                    break;
+                case 9:
+                    Fecha = "Sep " + Fecha.substring(0, 2) + " " + Fecha.substring(4);
+                    break;
+                case 10:
+                    Fecha = "Oct " + Fecha.substring(0, 2) + " " + Fecha.substring(4);
+                    break;
+                case 11:
+                    Fecha = "Nov " + Fecha.substring(0, 2) + " " + Fecha.substring(4);
+                    break;
+                case 12:
+                    Fecha = "Dec " + Fecha.substring(0, 2) + " " + Fecha.substring(4);
+                    break;
+            }
+            // ej -> Hora = 12:34 -> 1234
+            Hora = (ez.textInput("Hora -> hhmm"));
+            Hora = Hora.substring(0, 2) + ":" + Hora.substring(2) + ":" + "00";
+            #ifdef DEBUG_DATALOGGER
+                Serial.print("Fecha: ");
+                Serial.print(Fecha);
+                Serial.print("  Hora: ");
+                Serial.println(Hora);
+            #endif
+            // Formato Fecha "Dec 26 2009", Formato Hora "12:34:56" 
+            rtc.adjust(DateTime(Fecha.c_str(), Hora.c_str()));
+            ez.msgBox("Fecha / Hora", "Fecha / Hora actualizadas satisfactoriamente");
+            // Si el Datalogger estaba iniciado muestra los últimos datos registrados
+            if (timer.isEnabled(numTimer)){
+                inicia_Pantalla();
+                leer_SD();
+                show_Data();
+            }
+            // No iniciado el Datalogger se muestra pantalla inicial
+            else{
+                inicia_Pantalla();
+            }
+            menu = false;
+            break;
+        case 2: // Fijar a fecha y hora específica.   
+            if(red_wifi){
+                int F_year = myTZ.year();
+                int F_day = myTZ.day();
+                int F_month = myTZ.month();
+                int F_hour = myTZ.hour();
+                int F_minute = myTZ.minute();
+                rtc.adjust(DateTime(F_year, F_month, F_day, F_hour, F_minute, 0)); 
+            }
+            // Si el Datalogger estaba iniciado muestra los últimos datos registrados
+            if (timer.isEnabled(numTimer)){
+                inicia_Pantalla();
+                leer_SD();
+                show_Data();
+            }
+            // No iniciado el Datalogger se muestra pantalla inicial
+            else{
+                inicia_Pantalla();
+            }
+            menu = false;
+            break;
+        case 3: // EXIT
+            exit_menu();
+            break;
+    }
+    
+}
+
+// Menu Principal de Configuración del DataLogger
+void config_DataLogger(){
+    menu = true;
+    ezMenu myMenu("Configuracion DataLogger");
+    myMenu.addItem("Intervalo de escaneo");
+    myMenu.addItem("Configuracion SD");
+    myMenu.addItem("Configuracion General");
+    myMenu.addItem("Configuracion RTC");
+    myMenu.addItem ("EXIT");
+    switch (myMenu.runOnce()) {
+        case 1: // Intervalo de escaneo   
+            submenu1_SCAN();
+            break;
+        case 2: // Eliminar Datos SD  
+            submenu2_SD();
+            break;
+        case 3: // Configuracion General  
+            submenu3_CONFIG();
+            break;
+        case 4: // Configuracion General  
+            submenu4_RTC();
+            break;
+        case 5: // EXIT
+            exit_menu();
+            break;
+    }
+}
+
+// Gestión acciones de los botones
+void scanButton() {
+    String btn = ez.buttons.poll();
+    if (btn == "SETUP"){
+        config_DataLogger();
+    }
+    if ((btn == "START")&&(!(timer.isEnabled(numTimer)))){
+        write_Pantalla("Iniciado DataLogger " + (String)campos [8] + "       escaneando cada" + (String)campos [9]);
+        init_scan = start;
+        mode_energy = Normal;
+        if (estado_BLE){
+            Blynk.virtualWrite(V0,init_scan);
+            Blynk.virtualWrite(V9,"");
+        }
+    } 
+
+    if ((btn == "STOP")&&(timer.isEnabled(numTimer))){
+        write_Pantalla("Parado DataLogger " + (String)campos [8]);   
+        init_scan = stop;
+        mode_energy = Normal;
+        if (estado_BLE)
+            Blynk.virtualWrite(V0,init_scan);
+    } 
+
+    if (btn == "OFF"){
+        M5.Power.powerOFF();
+    }
+
+    if ((btn == "SLEEP")&&(timer.isEnabled(numTimer))){
+        mode_energy = Ahorro;
+        if (estado_BLE)
+            Blynk.virtualWrite(V7,mode_energy);
+        //Sueño profundo ESP32 del M5STACK
+        if (red_wifi){ // Desconectamos WIFI si esta activo
+            esp_wifi_disconnect();
+            esp_wifi_stop();
+        }
+        if (estado_BLE){// Desconectamos BLE si estaba activo
+            esp_bt_controller_disable();
+        }
+        M5.Power.deepSleep(intervalo*uS_to_S_Factor);
+    }
+    if (btn == "Yes") {
+        // Borrado archivo datalog.csv y actulización encabezados de la SD
+        borrado_encabezado_SD();
+        write_Pantalla("Datalogger y tarjeta SD                preparados para sensor " + (String)campos [8]); 
+    }
+    if (btn == "No") {
+        // Borrado archivo datalog.csv y actulización encabezados de la SD
+        write_Pantalla("Datalogger preparado para           sensor " + (String)campos [8]); 
+    }
+}
+
+//Ejecución de eventos asociados
+uint16_t programa_Eventos(){
+    timer.run(); // Inicio SimpleTimer para la ejecución de funciones
+    if (estado_BLE)
+        Blynk.run(); // Inicio Blynk
+    return refresco; // retorna el intervalo para su nueva ejecución
 }
 
 // Almacena los registros del sensor en la tarjeta SD
@@ -887,10 +979,10 @@ void almacenar_SD(char Fecha_RTC[20]){
         else Serial.println("espera_BLE = False");
         Serial.println("Modo Energia = " + (String)mode_energy);
         Serial.println("scan = " + (String)campos [9]);
-        Serial.println("Temperatura = " + (String)registro_1);
-        Serial.println("Humedad = " + (String)registro_2);
-        Serial.println("Presión = " + (String)registro_3);
-        Serial.println("Altitud = " + (String)registro_4);
+        Serial.println((String)campos [0] + " = " + (String)registro_1);
+        Serial.println((String)campos [2] + " = " + (String)registro_2);
+        Serial.println((String)campos [4] + " = " + (String)registro_3);
+        Serial.println((String)campos [6] + " = " + (String)registro_4);
     }
 #endif
 
@@ -1090,7 +1182,7 @@ void sensor_AM2320(char Fecha_RTC[20]){
 }
 
 // Busca las direcciones I2C del sensor conectado al DataLogger
-void Scanner_I2C(){
+void scanner_I2C(){
     #ifdef DEBUG_DATALOGGER
         Serial.println ();
         Serial.println ("I2C scanner. Scanning ...");
@@ -1317,6 +1409,7 @@ void  getData(){
     //Adquisición y registro de datos del sensor
     //Enviar Fecha app Blynk
     if (estado_BLE){
+        Blynk.virtualWrite(V0,1);
         Blynk.virtualWrite(V9,buffer_Fecha); 
         terminal.flush();
         terminal.print("Fecha / Hora RTC: ");         
@@ -1382,7 +1475,7 @@ void  getData(){
     //Muestra en pantalla los datos recogidos en modo normal (Ahorro Energia desactivado)
     if ((!(menu))&&(mode_energy!=Ahorro)){
         Blynk.virtualWrite(V7,0); // Ahorro Energia DesActivado
-        Inicia_Pantalla();
+        inicia_Pantalla();
         show_Data();
     }
     
@@ -1433,37 +1526,34 @@ BLYNK_WRITE(V5)
     switch (param.asInt()){
         case 1: // 30seg
             intervalo = 30000;
-            campos [9] =" 30 seg";
+            getTimeScan();
+            Blynk.setProperty(V5,"labels","30 seg","1 min","5 min","15 min", "XX min");
             #ifdef DEBUG_DATALOGGER
                 Serial.println("Blynk 30 seg");
             #endif
             break;
         case 2: // 60 seg
             intervalo = 60000;
-            campos [9] =" 60 seg";
+            getTimeScan();
+            Blynk.setProperty(V5,"labels","30 seg","1 min","5 min","15 min", "XX min");
             #ifdef DEBUG_DATALOGGER
                 Serial.println("Blynk 60 seg");
             #endif
             break;
         case 3: // 5 min
             intervalo = 300000;
-            campos [9] =" 5 min";
+            getTimeScan();
+            Blynk.setProperty(V5,"labels","30 seg","1 min","5 min","15 min", "XX min");
             #ifdef DEBUG_DATALOGGER
                 Serial.println("Blynk 5 min");
             #endif
             break;
         case 4: // 15 min
             intervalo = 900000;
-            campos [9] =" 15 min";
+            getTimeScan();
+            Blynk.setProperty(V5,"labels","30 seg","1 min","5 min","15 min", "XX min");
             #ifdef DEBUG_DATALOGGER
                 Serial.println("Blynk 15 min");
-            #endif
-            break;
-        case 5: // 30min
-            intervalo = 1800000;
-            campos [9] =" 30 min";
-            #ifdef DEBUG_DATALOGGER
-                Serial.println("Blynk 30 min");
             #endif
             break;
         }
@@ -1484,7 +1574,7 @@ BLYNK_WRITE(V7)
         M5.Lcd.wakeup();
         M5.Lcd.setBrightness(50);
         timer.enable(batTimer);
-        Inicia_Pantalla();
+        inicia_Pantalla();
     }
 }
 
@@ -1508,14 +1598,14 @@ void setup() {
     ez.begin();
     delay(50);
     if (mode_energy!=Ahorro){ // En todos los mode_energy menos en ahorro de energia
-        Inicia_Pantalla();
+        inicia_Pantalla();
     }
     
     // Inicio I2C
     Wire.begin(PIN_SDA, PIN_SCL);
 
     // Inicio Sensor
-    Scanner_I2C();
+    scanner_I2C();
         switch(sensor) {
             case BME280:  
                 campos [8]="BME280";
@@ -1588,7 +1678,7 @@ void setup() {
                                 ez.clock.tz.minute(), 0)
                         );
         }
-        Inicia_Pantalla();
+        inicia_Pantalla();
     }
 
     // Espero a conectarme a WIFI -> Normalmente mode_energy = 1 (Ahorro de Energia) tras Deep Sleep M5STACK
@@ -1616,10 +1706,11 @@ void setup() {
                 while(EstadoWifi != EZWIFI_IDLE){}
                 ez.clock.waitForSync();
                 ez.clock.tz.setLocation(F("Europe/Madrid"));
-                Inicia_Pantalla();
+                inicia_Pantalla();
             }
+            getTimeScan();
+            level_Battery(); //Actualizo nivel Batería
             #ifdef DEBUG_DATALOGGER
-                getTimeScan();
                 Serial.println("SETUP EXT0: intervalo = " + (String)intervalo);
                 Serial.println("SETUP EXT0: scan " + (String)campos [9]);
             #endif
@@ -1651,11 +1742,11 @@ void setup() {
 
     //Inicio y desactivo Timer
     numTimer = timer.setInterval(intervalo, getData);
-    batTimer = timer.setInterval(300000, Level_Battery); // Cada 5 min actualizo nivel de bateria
+    batTimer = timer.setInterval(300000, level_Battery); // Cada 5 min actualizo nivel de bateria
     timer.disable(numTimer);
 
     // Eventos asociados a M5ez: SimpleTimer run y Blynk App
-    ez.addEvent(Programa_Eventos, refresco); 
+    ez.addEvent(programa_Eventos, refresco); 
 
 }
 
@@ -1669,6 +1760,18 @@ void loop() {
             getData(); // recoge y graba datos en SD cada intervalo
             break;
         case Arranque: // Borrado y actualizado encabezados SD -> Solo se ejecura 1 vez
+            if (estado_BLE){
+                Blynk.virtualWrite(V0,0);   //DataLogger Parado
+                Blynk.virtualWrite(V1,0); //Registro_1
+                Blynk.virtualWrite(V2,0); //Registro_2
+                Blynk.virtualWrite(V3,0); //Registro_3
+                Blynk.virtualWrite(V4,0); //Registro_4
+                Blynk.setProperty(V5,"labels","30 seg","1 min","5 min","15 min", "XX min");
+                Blynk.virtualWrite(V5,1);   //Escaneo inicial 30 seg
+                Blynk.virtualWrite(V7,0);   //DataLogger Low Energy OFF
+                Blynk.virtualWrite(V8,0);   //Espera conexión BLE
+                terminal.clear();           //Terminal registros
+            }
             M5.Lcd.drawBitmap(0, 0, 320, 240, (uint16_t *) logo); // Muestra en pantalla logo
             delay(3000);
             campos [9] = " 30 seg"; // Intervalo muestreo por defecto 30 seg mostrado en pantalla
@@ -1681,25 +1784,26 @@ void loop() {
             if (init_scan==start){ // Inicia DataLogger
                 #ifdef DEBUG_DATALOGGER
                     Serial.println("LOOP: intervalo = " + (String)intervalo);
-                    Serial.println("LOOP: scan = " + (String)campos [9]);
+                    Serial.print("LOOP: scan = ");  Serial.println(campos [9]);
                     Serial.println("LOOP: mem_init_scan = " + (String)mem_mode_energy);
                 #endif
-                Level_Battery(); //Actualizo nivel Batería
+                level_Battery(); //Actualizo nivel Batería
                 timer.deleteTimer(numTimer);
                 numTimer = timer.setInterval(intervalo, getData); // recoge y graba datos en SD cada intervalo
                 if ((mem_mode_energy == Ahorro) && (save_SD)){ // ya estaba iniciado el DataLogger y grabando en SD
-                    Inicia_Pantalla();
-                    leer_SD(); // Muestra los últimos registros en pantalla
-                    show_Data();
+                    inicia_Pantalla();  // Borra pantalla y muestra los botones
+                    leer_SD();          // Recupera los últimos registros de la SD
+                    show_Data();        // Muestra los últimos registros en pantalla
                 }
                 else{ // iniciado DataLogger por primera vez 
-                    write_Pantalla("Iniciado DataLogger " + (String)campos [8] + "       escaneando cada" + (String)campos [9]);
+                    write_Pantalla("Iniciado DataLogger " + (String)campos [8] + "       escaneando cada" + String(campos [9]));
                 }
                 mode_energy = Normal;
             }
             if (init_scan==stop){ // Para DataLogger
                 timer.disable(numTimer);
                 write_Pantalla("Parado DataLogger " + (String)campos [8]);   
+                level_Battery(); //Actualizo nivel Batería
                 mode_energy = Normal;
                 mem_mode_energy = Normal;
             }
@@ -1707,7 +1811,7 @@ void loop() {
             scanButton(); // Gestión acciones de los botones
             break;
     }
-    
+
 }
 
 
