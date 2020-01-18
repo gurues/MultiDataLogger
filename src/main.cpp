@@ -4,7 +4,8 @@
  ------------------------------------------------------------------------------------------------------------ 
 
  En este proyecto se realiza un DataLogger que registra los parámetros del sensor conectado al bus I2C del 
- M5STACK (ESP32). Un RTC DS3231 proporciona la fecha/hora del registro si no configura o dispone de red WIFI.
+ M5STACK (ESP32). Un RTC DS3231 conectado al bus I2C del M5STACK, proporciona la fecha/hora del registro si no
+ configura o dispone de red WIFI.
  El DataLogger es capaz de detectar el sensor conectado al bus I2C y predisponerse a registrar sus parámetros.
 
  Sensores soportados: 
@@ -24,7 +25,7 @@
 //#define BLYNK_PRINT Serial
 
 // Descomenta para relizar DEBUG por puerto serie
-#define DEBUG_DATALOGGER
+//#define DEBUG_DATALOGGER
 
 // Librerias del programa
 #include <Arduino.h>
@@ -61,10 +62,10 @@ extern const unsigned char logo[];
 
 // Definición de Constantes
 #define uS_to_S_Factor 1000         // Factor para DeepSleep en segundos
-#define SEALEVELPRESSURE_mbar (1010) // Estimar la altitud para una presión dada comparándola con la presión
+//#define SEALEVELPRESSURE_mbar (1010) // Estimar la altitud para una presión dada comparándola con la presión
                                     // a nivel del mar. Este ejemplo utiliza el valor predeterminado, pero 
                                     // para obtener resultados más precisos, reemplace el valor con la 
-                                    // presión actual del nivel del mar en su ubicación
+                                    // presión actual del nivel del mar en su ubicación. Lo usa BME280
 
 // Definición de Pines
 #define PIN_Boton_C 37  // Pin - GPIO del Boton C en M5Stack, en el programa despertará al M5Stack
@@ -74,7 +75,7 @@ extern const unsigned char logo[];
 
 //  --------------  Objetos del Proyecto
 
-// Objeto SimpleTimer para la ejecución periodica de funciones
+// Objeto SimpleTimer para la ejecución periódica de funciones
 SimpleTimer timer;
 int numTimer, batTimer;
 
@@ -120,18 +121,18 @@ enum Sensor_Registro{   // Sensores permitidos
 // ---------------------------------------------------
 
 //  --------------  Variables de contol del Proyecto
-RTC_DATA_ATTR Estado_Energy mode_energy = Arranque; // Modos de energia -> 0: Normal 1: Ahorro Energia Activado 2: Arranque 1ª vez Normal
-RTC_DATA_ATTR Estado_Registro init_scan = run;      // Modos de registro de datos -> start/stop/run
+RTC_DATA_ATTR Estado_Energy mode_energy = Arranque; // Modos de energia -> 0: Normal 1: Ahorro Energia Activado 2: Arranque 1ª vez
+RTC_DATA_ATTR Estado_Registro init_scan = run;      // Modos de registro de datos -> 0:startv/ 1:stop / 2:run
 RTC_DATA_ATTR Sensor_Registro sensor = ninguno;     // Sensor I2C a registrar
 RTC_DATA_ATTR uint32_t intervalo = 30000;           // Intervalo muestreo por defecto 30 seg.
-RTC_DATA_ATTR bool red_wifi = false;                // Variable de control red wifi -> false: No conectado true: conectado.
+RTC_DATA_ATTR bool red_wifi = false;                // Variable de control red wifi -> false: No conectado true: conectado
 RTC_DATA_ATTR bool save_SD = true;                  // Variable de control SD save_SD -> false: No graba datos en SD true: Graba datos en SD
 RTC_DATA_ATTR bool estado_BLE = false;              // Variable de control Bluetooth BLE -> false: No conectado true: conectado
 RTC_DATA_ATTR bool espera_BLE = false;              // Variable de control espera conexión Bluetooth BLE -> false: No espera true: espera
 bool menu = false;                                  // Variable de control para no refrescar pantalla si estoy en un menu
 int battery;                                        // Nivel de bateria 100% - 75% - 50% - 25%
-Estado_Energy mem_mode_energy;                      // Etado anterior Modos de energia -> 0: Normal 1: Ahorro Energia Activado 2: Arranque 1ª vez Normal
-const uint16_t refresco = 250;                      // Refresco eventos cada 250 mseg (SimpleTimer funciones y Blynk App)
+Estado_Energy mem_mode_energy;                      // Etado anterior Modos de energia -> 0: Normal 1: Ahorro Energia Activado 2: Arranque 1ª vez
+const uint16_t refresco = 250;                      // Tiempo en mseg de refresco eventos(SimpleTimer funciones y Blynk App)
 // ---------------------------------------------------
 
 //  --------------  Variables a registrar del sensor
@@ -141,7 +142,7 @@ char registro_3 [20];
 char registro_4 [20];
 // ---------------------------------------------------
 
-//  --------------  Variable control encabezados DataLogger
+//  --------------  Variable control encabezados del DataLogger
 ////{campos[0], campos[1],campos[2], campos[3],campos[4], campos[5],
 //campos[6], campos[7],campos[8], campos[9], campos[10], campos[11]}
 //{encabezado reg_1, unidad reg_1, encabezado reg_2, unidad reg_2, encabezado reg_3, unidad reg_3,
@@ -157,10 +158,13 @@ WidgetTerminal terminal (V10);
 /////////////////////                  FUNIONES                 /////////////////////////////////////////////
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-// Actualiza porcentaje bateria
+// Actualiza porcentaje bateria y muestra estado bateria: cargango o llena
 void level_Battery(){ // Controlador de carga Bateria IP5306_I2C chip del M5STACK
     if (M5.Power.isCharging()){
-        ez.header.show("DATALOGGER CHARGING"); // Datalogger cargando
+        if (M5.Power.isChargeFull())
+            ez.header.show("DATALOGGER  FULL"); // Datalogger cargado
+        else
+            ez.header.show("DATALOGGER CHARGING"); // Datalogger cargando
     }
     else{
     battery = M5.Power.getBatteryLevel();
@@ -170,7 +174,7 @@ void level_Battery(){ // Controlador de carga Bateria IP5306_I2C chip del M5STAC
     }
 }
 
-// Inicio Pantalla Vacia y botones disponibles
+//Inicia Patalla: Borra, muestra botones disponibles, level bateria ...
 void inicia_Pantalla(){
     ez.screen.clear();
     level_Battery();
@@ -229,7 +233,7 @@ void show_Data(){
         ez.canvas.print(" ");
         ez.canvas.println(campos[1]);
     }
-    //  sensor de 2 registro: AM2320/ SHT21
+    //  sensor de 2 registros: AM2320/ SHT21
     if ((sensor==BME280)||(sensor==BME680)||(sensor==AM2320)||(sensor==SHT21)){
         ez.canvas.y(3*(ez.canvas.height()/6));
         ez.canvas.x(15);
@@ -239,7 +243,7 @@ void show_Data(){
         ez.canvas.print(" ");
         ez.canvas.println(campos[3]);
     }
-    //  sensor de 4 registro: BME280 / BME680
+    //  sensor de 4 registros: BME280 / BME680
     if ((sensor==BME280)||(sensor==BME680)){
         ez.canvas.y(4*(ez.canvas.height()/6));
         ez.canvas.x(15);
@@ -259,16 +263,17 @@ void show_Data(){
     }
 }
 
-// REcupera los últimos registros de la tarjeta SD y los muestra en pantalla
+// Recupera los últimos registros de la tarjeta SD y los almacena en las 
+// variables registro_1, registro_2, registro_3 y registro_4
 void leer_SD(){ 
     String cadena = "";
     int Posicion = 0; // Posición de lectura archivo datalog.csv
-    myFile = SD.open("/datalog.csv", FILE_READ);//abrimos  el archivo y añadimos datos
+    myFile = SD.open("/datalog.csv", FILE_READ);//abrimos  el archivo para leer datos
     if (myFile) { 
         #ifdef DEBUG_DATALOGGER
             Serial.println("Leyendo datos de Tarjeta SD .....");
         #endif
-        //Obtengo longtud en bytes del encabezado del sensor
+        //Obtengo longtiud en bytes del encabezado del sensor
         int Bytes_encab = 0;
         Posicion = Bytes_encab;
         myFile.seek(Posicion); 
@@ -280,12 +285,12 @@ void leer_SD(){
             }
             Posicion++;
         }
-        int totalBytes = myFile.size();
+        int totalBytes = myFile.size(); // Longitud Total en bytes del archivo
         #ifdef DEBUG_DATALOGGER
             Serial.println("Bytes encabezado: " + (String)Bytes_encab);
             Serial.println("TotalBytes: " + (String)totalBytes);
         #endif
-        // Si hay datos los recupero
+        // Si hay datos los recupero (tiene que haber más datos que solo los encabezados)
         if (totalBytes>Bytes_encab){
             // Busco cuantos bytes ocupan los últimos registros
             // Me posiciono en la última posición con datos del archivo datalog.csv
@@ -367,6 +372,41 @@ void leer_SD(){
     }
 }
 
+// Almacena los registros del sensor en la tarjeta SD
+void almacenar_SD(char Fecha_RTC[20], const char * dia){
+    myFile = SD.open("/datalog.csv", FILE_APPEND);//abrimos  el archivo y añadimos datos
+    if (myFile) { 
+        #ifdef DEBUG_DATALOGGER
+            Serial.println("Almacenando datos en Tarjeta SD .....");
+        #endif
+        //myFile.print((myTZ.dateTime("l, d-M-y H:i:s")));
+        myFile.print((myTZ.dateTime("d-M-y H:i:s")));
+        myFile.print(",");
+        myFile.print(dia);       
+        myFile.print(",");
+        myFile.print(Fecha_RTC);
+        myFile.print(",");
+        myFile.print(registro_1);
+        if ((sensor==BME280)||(sensor==BME680)||(sensor==AM2320)||(sensor==SHT21)){ // sensor de 2 registros
+            myFile.print(",");
+            myFile.print(registro_2);  
+        }
+        if ((sensor==BME280)||(sensor==BME680)){ // sensor de 4 registros
+            myFile.print(",");
+            myFile.print(registro_3);  
+            myFile.print(",");
+            myFile.print(registro_4);  
+        }
+        myFile.println(",");  // Salto de linea
+        myFile.close();    //cerramos el archivo                    
+    } 
+    else {
+        #ifdef DEBUG_DATALOGGER
+            Serial.println("Error al abrir el archivo en tarjeta SD");
+        #endif
+    }
+}
+
 // Actualización registros app BLYNK
 void sensor_display_Blink(){
     // sensor de 1 registro: LM75 / lux_BH1750 / VEML6075 / TSL2541
@@ -382,7 +422,7 @@ void sensor_display_Blink(){
         terminal.print(campos[1]);
         terminal.flush();
     }
-    //  sensor de 2 registro: AM2320/ SHT21
+    //  sensor de 2 registros: AM2320/ SHT21
     if ((sensor==BME280)||(sensor==BME680)||(sensor==AM2320)||(sensor==SHT21)){
         //Actualizo Registro_2 en Blink app
         Blynk.virtualWrite(V2,registro_2); 
@@ -394,7 +434,7 @@ void sensor_display_Blink(){
         terminal.print(campos[3]);
         terminal.flush();
     }
-    //  sensor de 4 registro: BME280 / BME680
+    //  sensor de 4 registros: BME280 / BME680
     if ((sensor==BME280)||(sensor==BME680)){
         //Actualizo Registro_3 en Blink app
         Blynk.virtualWrite(V3,registro_3);
@@ -502,7 +542,7 @@ void submenu1_SCAN(){
     myMenu1.addItem("1 min");
     myMenu1.addItem("5 min");
     myMenu1.addItem("15 min");
-    myMenu1.addItem("Intervalo escaneo en min");
+    myMenu1.addItem("Intervalo escaneo en minutos");
     myMenu1.addItem("EXIT");
     String scaneo;
 
@@ -574,7 +614,7 @@ void submenu1_SCAN(){
                 show_Data();
             }
             else{
-                scaneo = (ez.textInput("Intervalo escaneo en min"));
+                scaneo = (ez.textInput("Intervalo escaneo minutos"));
                 intervalo = scaneo.toInt();
                 if (intervalo == 0){
                     intervalo = 30000; // 30 seg por defecto
@@ -589,8 +629,8 @@ void submenu1_SCAN(){
                         Blynk.virtualWrite(V5,5);
                     }
                     ez.msgBox("Intervalo escaneo", "Introducido " + scaneo + " como intervalo de escaneo");
-                    inicia_Pantalla();
                 }
+                inicia_Pantalla();
             }
             menu = false;
             break;
@@ -613,52 +653,54 @@ void borrado_encabezado_SD(){
     if (myFile) {
         switch(sensor) { // Creación de encabezados archivo datalog.csv
             case BME280:  // Se crea encabezado BME280 en datalog.csv
-                myFile.println("Dia WIFI,Fecha Hora WIFI,Fecha Hora RTC,Temperatura (ºC),Humedad (%),Presion (mbar),Altitud (m), Sensor BME280");
+                myFile.println("Fecha Hora WIFI,Dia,Fecha Hora RTC,Temperatura (ºC),Humedad (%),Presion (mbar),Altitud (m), Sensor BME280");
                 myFile.close();
                 ez.msgBox("Borrar SD - SI", "Datos Borrados de tarjeta SD");
                 inicia_Pantalla();
                 break;
             case BME680:  // Se crea encabezado BME680 en datalog.csv
-                myFile.println("Dia WIFI,Fecha Hora WIFI,Fecha Hora RTC,Temperatura (ºC),Humedad (%),Presion (mbar),Gas VOC (ohmios), Sensor BME680");
+                myFile.println("Fecha Hora WIFI,Dia,Fecha Hora RTC,Temperatura (ºC),Humedad (%),Presion (mbar),Gas VOC (ohmios), Sensor BME680");
                 myFile.close();
                 ez.msgBox("Borrar SD - SI", "Datos Borrados de tarjeta SD");
                 inicia_Pantalla();
                 break;
             case LM75:  // Se crea encabezado LM75 en datalog.csv
-                myFile.println("Dia WIFI,Fecha Hora WIFI,Fecha Hora RTC,Temperatura (ºC), Sensor LM75");
+                myFile.println("Fecha Hora WIFI,Dia,Fecha Hora RTC,Temperatura (ºC), Sensor LM75");
                 myFile.close();
                 ez.msgBox("Borrar SD - SI", "Datos Borrados de tarjeta SD");
                 inicia_Pantalla();
                 break;
             case lux_BH1750:  // Se crea encabezado lux_BH1750 en datalog.csv
-                myFile.println("Dia WIFI,Fecha Hora WIFI,Fecha Hora RTC,Nivel Luminosidad (lux), Sensor BH1750");
+                myFile.println("Fecha Hora WIFI,Dia,Fecha Hora RTC,Nivel Luminosidad (lux), Sensor BH1750");
                 myFile.close();
                 ez.msgBox("Borrar SD - SI", "Datos Borrados de tarjeta SD");
                 inicia_Pantalla();
                 break;
             case VEML6075:  // Se crea encabezado VEML6075 en datalog.csv
-                myFile.println("Dia WIFI,Fecha Hora WIFI,Fecha Hora RTC,indice UV,, Sensor VEML6075");
+                myFile.println("Fecha Hora WIFI,Dia,Fecha Hora RTC,indice UV,, Sensor VEML6075");
                 myFile.close();
                 ez.msgBox("Borrar SD - SI", "Datos Borrados de tarjeta SD");
                 inicia_Pantalla();
                 break;
             case TSL2541:  // Se crea encabezado TSL2541 en datalog.csv
-                myFile.println("Dia WIFI,Fecha Hora WIFI,Fecha Hora RTC,Nivel Luminosidad (lux), Sensor TSL2541");
+                myFile.println("Fecha Hora WIFI,Dia,Fecha Hora RTC,Nivel Luminosidad (lux), Sensor TSL2541");
                 myFile.close();
                 ez.msgBox("Borrar SD - SI", "Datos Borrados de tarjeta SD");
                 inicia_Pantalla();
                 break;
             case SHT21:     // Se crea encabezado SHT21 en datalog.csv
-                myFile.println("Dia WIFI,Fecha Hora WIFI,Fecha Hora RTC,Temperatura (ºC),Humedad (%), Sensor SHT21");
+                myFile.println("Fecha Hora WIFI,Dia,Fecha Hora RTC,Temperatura (ºC),Humedad (%), Sensor SHT21");
                 myFile.close();
                 ez.msgBox("Borrar SD - SI", "Datos Borrados de tarjeta SD");
                 inicia_Pantalla();
                 break;
             case AM2320:    // Se crea encabezado AM2320 en datalog.csv
-                myFile.println("Dia WIFI,Fecha Hora WIFI,Fecha Hora RTC,Temperatura (ºC),Humedad (%), Sensor AM2320");
+                myFile.println("Fecha Hora WIFI,Dia,Fecha Hora RTC,Temperatura (ºC),Humedad (%), Sensor AM2320");
                 myFile.close();
                 ez.msgBox("Borrar SD - SI", "Datos Borrados de tarjeta SD");
                 inicia_Pantalla();
+                break;
+            case ninguno:
                 break;
         }
     }
@@ -859,7 +901,7 @@ void config_DataLogger(){
         case 3: // Configuracion General  
             submenu3_CONFIG();
             break;
-        case 4: // Configuracion General  
+        case 4: // Configuracion RTC  
             submenu4_RTC();
             break;
         case 5: // EXIT
@@ -923,262 +965,96 @@ void scanButton() {
 
 //Ejecución de eventos asociados
 uint16_t programa_Eventos(){
-    timer.run(); // Inicio SimpleTimer para la ejecución de funciones
+    timer.run(); // Inicio SimpleTimer, ejecución de funciones
     if (estado_BLE)
-        Blynk.run(); // Inicio Blynk
+        Blynk.run(); // Inicio Blynk, actualización de la app
     return refresco; // retorna el intervalo para su nueva ejecución
-}
-
-// Almacena los registros del sensor en la tarjeta SD
-void almacenar_SD(char Fecha_RTC[20]){
-    myFile = SD.open("/datalog.csv", FILE_APPEND);//abrimos  el archivo y añadimos datos
-    if (myFile) { 
-        #ifdef DEBUG_DATALOGGER
-            Serial.println("Almacenando datos en Tarjeta SD .....");
-        #endif
-        myFile.print((myTZ.dateTime("l, d-M-y H:i:s")));
-        myFile.print(",");
-        myFile.print(Fecha_RTC);
-        myFile.print(",");
-        myFile.print(registro_1);
-        if ((sensor==BME280)||(sensor==BME680)||(sensor==AM2320)||(sensor==SHT21)){ // sensor de 2 registros
-            myFile.print(",");
-            myFile.print(registro_2);  
-        }
-        if ((sensor==BME280)||(sensor==BME680)){ // sensor de 4 registros
-            myFile.print(",");
-            myFile.print(registro_3);  
-            myFile.print(",");
-            myFile.print(registro_4);  
-        }
-        myFile.println(",");  // Salto de linea
-        myFile.close();    //cerramos el archivo                    
-    } 
-    else {
-        #ifdef DEBUG_DATALOGGER
-            Serial.println("Error al abrir el archivo en tarjeta SD");
-        #endif
-    }
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////                FUNCIONES SENSORES                 /////////////////////////////////////////                                 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-#ifdef DEBUG_DATALOGGER     // Solo se ejecuta en modo DEBUG
-    void debug_Sensor(char Fecha_RTC[20]){
-    // DEBUG DataLogger
-        Serial.println("*************************************************************");
-        Serial.println("Fecha / Hora WIFI: " + myTZ.dateTime("l, d-M-y H:i:s"));
-        Serial.print("Fecha / Hora RTC: "); Serial.println(Fecha_RTC);
-        if(red_wifi) Serial.println("Red Wifi = True");
-        else Serial.println("Red Wifi = False");
-        if(estado_BLE) Serial.println("estado_BLE = True");
-        else Serial.println("estado_BLE = False");
-        if(espera_BLE) Serial.println("espera_BLE = True");
-        else Serial.println("espera_BLE = False");
-        Serial.println("Modo Energia = " + (String)mode_energy);
-        Serial.println("scan = " + (String)campos [9]);
-        Serial.println((String)campos [0] + " = " + (String)registro_1);
-        Serial.println((String)campos [2] + " = " + (String)registro_2);
-        Serial.println((String)campos [4] + " = " + (String)registro_3);
-        Serial.println((String)campos [6] + " = " + (String)registro_4);
+// Configuración inicial del sensor detectado
+void inicio_sensor(){
+    switch(sensor) {
+        case BME280:
+            // Inicio BME280
+            if (!bme280.begin(0x76)) {
+                ez.canvas.println("No encontrado sensor");
+                ez.canvas.println("  BME280 !!!");
+                while (1);
+            }
+            #define SEALEVELPRESSURE_mbar (1010) // Estimar la altitud para una presión dada comparándola con la presión
+                                    // a nivel del mar. Este ejemplo utiliza el valor predeterminado, pero 
+                                    // para obtener resultados más precisos, reemplace el valor con la 
+                                    // presión actual del nivel del mar en su ubicación. Lo usa BME280
+            break;
+        case BME680:
+            // Inicio BME680
+            if (!bme680.begin(0x77)) {
+                ez.canvas.println("No encontrado sensor");
+                ez.canvas.println("  BME680 !!!");
+                while (1);
+            }
+            // Configuración inicial sobremuestreo filtro inicial
+            bme680.setTemperatureOversampling(BME680_OS_8X);
+            bme680.setHumidityOversampling(BME680_OS_2X);
+            bme680.setPressureOversampling(BME680_OS_4X);
+            bme680.setIIRFilterSize(BME680_FILTER_SIZE_3);
+            bme680.setGasHeater(320, 150); // 320*C for 150 ms
+            break;
+        case LM75:
+            // Inicio LM75: No necesita configuración inicial
+            break; 
+        case SHT21:
+            // Inicio SHT21
+            if (!sht21.begin()) {
+                ez.canvas.println("No encontrado sensor");
+                ez.canvas.println("  SHT21 !!!");
+                while (1);
+            }
+            break;
+        case lux_BH1750:
+            // Inicio BH1750
+            if (!bh1750.begin(BH1750::ONE_TIME_HIGH_RES_MODE)) {
+                ez.canvas.println("No encontrado sensor");
+                ez.canvas.println("  BH1750 !!!");
+                while (1);
+            }
+            break; 
+        case VEML6075:
+            // Inicio VEML6075
+            if (!veml6075.begin()) {
+                ez.canvas.println("No encontrado sensor");
+                ez.canvas.println("  VEML6075 !!!");
+                while (1);
+            }
+            break; 
+        case TSL2541:
+            // Inicio TSL2541
+            if (!tsl2541.begin()) {
+                ez.canvas.println("No encontrado sensor");
+                ez.canvas.println("  TSL2541 !!!");
+                while (1);
+            }
+            tsl2541.enableAutoRange(true);
+            tsl2541.setIntegrationTime(TSL2561_INTEGRATIONTIME_13MS);
+            break; 
+        case AM2320:
+            // Inicio AM2320
+            if (!am2320.begin()) {
+                ez.canvas.println("No encontrado sensor");
+                ez.canvas.println("  AM2320 !!!");
+                while (1);
+            }
+            break;
+        case ninguno: // default
+            ez.canvas.println("No encontrado sensor");
+            ez.canvas.println(" Conecte sensor al puerto I2C");
+            while (1);
+            break;
     }
-#endif
-
-// BME280: Registra -> Temperatura, Huemdad, Presión y altitud
-void sensor_BME280(char Fecha_RTC[20]){  
-    //Leer temperatura.
-    dtostrf(bme280.readTemperature(),2,1,registro_1);
-    //Leer humedad.
-    dtostrf(bme280.readHumidity(),2,1,registro_2);
-    //Leer presion.
-    dtostrf(bme280.readPressure()/ 100.0F,2,1,registro_3);
-    //Leer altitud.
-    dtostrf(bme280.readAltitude(SEALEVELPRESSURE_mbar),2,1,registro_4);
-    //Se actulizan datos en app Blynk
-    if (estado_BLE){
-        Blynk.setProperty(V1,"label", "                         Temperatura");
-        Blynk.setProperty(V2,"label", "                         Humedad");
-        Blynk.setProperty(V3,"label", "                         Presion");
-        Blynk.setProperty(V4,"label", "                         Altidud");
-        sensor_display_Blink();
-    }
-    // DEBUG DataLogger
-    #ifdef DEBUG_DATALOGGER
-        debug_Sensor(Fecha_RTC);
-    #endif
-}
-
-// BME280: Registra -> Temperatura, Huemdad, Presión y calidad del aire
-void sensor_BME680(char Fecha_RTC[20]){
-    //Leer temperatura.
-    dtostrf(bme680.readTemperature(),2,1,registro_1);
-    //Leer humedad.
-    dtostrf(bme680.readHumidity(),2,1,registro_2);
-    //Leer presion.
-    dtostrf(bme680.readPressure()/ 100.0F,2,1,registro_3);
-    //Leer gas VOC.uint32_t readGas(void);
-    dtostrf(bme680.readGas(),2,1,registro_4);
-    //Se actulizan datos en app Blynk
-    if (estado_BLE){
-        Blynk.setProperty(V1,"label", "                         Temperatura");
-        Blynk.setProperty(V2,"label", "                         Humedad");
-        Blynk.setProperty(V3,"label", "                         Presion");
-        Blynk.setProperty(V4,"label", "                         Gas VOC");
-        sensor_display_Blink();
-    }
-    // DEBUG DataLogger
-    #ifdef DEBUG_DATALOGGER
-        debug_Sensor(Fecha_RTC);
-    #endif
-}
-
-// LM75: Registra -> Nivel de Luminusidad
-void sensor_LM75(char Fecha_RTC[20]){
-    //Leer nivel luminusidad.
-    dtostrf(lm75.readTemperatureC(),2,1,registro_1);
-    //Registro 2.
-    dtostrf(0.0,2,1,registro_2);
-    //Registro 3.
-    dtostrf(0.0,2,1,registro_3);
-    //Registro 4.
-    dtostrf(0.0,2,1,registro_4);
-    //Se actulizan datos en app Blynk
-    if (estado_BLE){
-        Blynk.setProperty(V1,"label", "                         Temperatura");
-        Blynk.setProperty(V2,"label", " ");
-        Blynk.setProperty(V3,"label", " ");
-        Blynk.setProperty(V4,"label", " ");
-        sensor_display_Blink();
-    }
-    // DEBUG DataLogger
-    #ifdef DEBUG_DATALOGGER
-        debug_Sensor(Fecha_RTC);
-    #endif
-}
-
-//SHT21: Registra -> Temperatura, Huemdad
-void sensor_SHT21(char Fecha_RTC[20]){
-    //Leer temperatura.
-    dtostrf(sht21.readTemperature(),2,1,registro_1);
-    //Leer humrdad.
-    dtostrf(sht21.readHumidity(),2,1,registro_2);
-    //Registro 3.
-    dtostrf(0.0,2,1,registro_3);
-    //Registro 4.
-    dtostrf(0.0,2,1,registro_4);
-    //Se actulizan datos en app Blynk
-    if (estado_BLE){
-        Blynk.setProperty(V1,"label", "                         Temperatura");
-        Blynk.setProperty(V1,"label", "                         Humedad");
-        Blynk.setProperty(V3,"label", " ");
-        Blynk.setProperty(V4,"label", " ");
-        sensor_display_Blink();
-    }
-    // DEBUG DataLogger
-    #ifdef DEBUG_DATALOGGER
-        debug_Sensor(Fecha_RTC);
-    #endif
-}
-
-// BH1750: Registra -> Nivel de Luminusidad
-void sensor_BH1750(char Fecha_RTC[20]){
-    //Leer luminosidad.
-    dtostrf(bh1750.readLightLevel(),2,1,registro_1);
-    //Registro 2.
-    dtostrf(0.0,2,1,registro_2);
-    //Registro 3.
-    dtostrf(0.0,2,1,registro_3);
-    //Registro 4.
-    dtostrf(0.0,2,1,registro_4);
-    //Se actulizan datos en app Blynk
-    if (estado_BLE){
-        Blynk.setProperty(V1,"label", "                         Luminosidad");
-        Blynk.setProperty(V2,"label", " ");
-        Blynk.setProperty(V3,"label", " ");
-        Blynk.setProperty(V4,"label", " ");
-        sensor_display_Blink();
-    }
-    // DEBUG DataLogger
-    #ifdef DEBUG_DATALOGGER
-        debug_Sensor(Fecha_RTC);
-    #endif
-}
-
-// VEML6075: Registra -> Indice ultravioleta
-void sensor_VEML6075(char Fecha_RTC[20]){
-    //Leer indice UV.
-    dtostrf(veml6075.readUVI(),2,1,registro_1);
-    //Registro 2.
-    dtostrf(0.0,2,1,registro_2);
-    //Registro 3.
-    dtostrf(0.0,2,1,registro_3);
-    //Registro 4.
-    dtostrf(0.0,2,1,registro_4);
-    //Se actulizan datos en app Blynk
-    if (estado_BLE){
-        Blynk.setProperty(V1,"label", "                        Indice UV");
-        Blynk.setProperty(V2,"label", " ");
-        Blynk.setProperty(V3,"label", " ");
-        Blynk.setProperty(V4,"label", " ");
-        sensor_display_Blink();
-    }
-    // DEBUG DataLogger
-    #ifdef DEBUG_DATALOGGER
-        debug_Sensor(Fecha_RTC);
-    #endif
-}
-
-// TSL2541: Registra -> Nivel de Luminusidad
-void sensor_TSL2541(char Fecha_RTC[20]){
-    //Leer luminosidad.
-    sensors_event_t event;
-    tsl2541.getEvent(&event);
-    /* Display the results (light is measured in lux) */
-    dtostrf(event.light,2,1,registro_1);
-    //Registro 2.
-    dtostrf(0.0,2,1,registro_2);
-    //Registro 3.
-    dtostrf(0.0,2,1,registro_3);
-    //Registro 4.
-    dtostrf(0.0,2,1,registro_4);
-    //Se actulizan datos en app Blynk
-    if (estado_BLE){
-        Blynk.setProperty(V1,"label", "                         Luminosidad");
-        Blynk.setProperty(V2,"label", " ");
-        Blynk.setProperty(V3,"label", " ");
-        Blynk.setProperty(V4,"label", " ");
-        sensor_display_Blink();
-    }
-    // DEBUG DataLogger
-    #ifdef DEBUG_DATALOGGER
-        debug_Sensor(Fecha_RTC);
-    #endif
-}
-
-// AM2320: Registra -> Temperatura, Huemdad
-void sensor_AM2320(char Fecha_RTC[20]){
-    //Leer temperatura.
-    dtostrf(am2320.readTemperature(),2,1,registro_1);
-    //Leer humrdad.
-    dtostrf(am2320.readHumidity(),2,1,registro_2);
-    //Registro 3.
-    dtostrf(0.0,2,1,registro_3);
-    //Registro 4.
-    dtostrf(0.0,2,1,registro_4);
-    //Se actulizan datos en app Blynk
-    if (estado_BLE){
-        Blynk.setProperty(V1,"label", "                         Temperatura");
-        Blynk.setProperty(V1,"label", "                         Humedad");
-        Blynk.setProperty(V3,"label", " ");
-        Blynk.setProperty(V4,"label", " ");
-        sensor_display_Blink();
-    }
-    // DEBUG DataLogger
-    #ifdef DEBUG_DATALOGGER
-        debug_Sensor(Fecha_RTC);
-    #endif
 }
 
 // Busca las direcciones I2C del sensor conectado al DataLogger
@@ -1191,7 +1067,7 @@ void scanner_I2C(){
     for (byte direccion = 8; direccion < 120; direccion++){
         Wire.beginTransmission (direccion); // Comienza I2C transmision Address (direccion)
         if (Wire.endTransmission () == 0) { // Recibido 0 = success (ACK response) 
-            if (((direccion)!=104)&&((direccion)!=117)){ // 0x68 RTC y 0x75 IP5306 chip del M5STACK
+            if (((direccion)!=104)&&((direccion)!=117)){ // 0x68 RTC y 0x75 IP5306 chip display del M5STACK
                 direccion_I2C = direccion;
                 break;
             }
@@ -1307,87 +1183,226 @@ void scanner_I2C(){
     }
 }
 
-// Configuración inicial del sensor detectado
-void inicio_sensor(){
-    switch(sensor) {
-        case BME280:
-            // Inicio BME280
-            if (!bme280.begin(0x76)) {
-                ez.canvas.println("No encontrado sensor");
-                ez.canvas.println("  BME280 !!!");
-                while (1);
-            }
-            break;
-        case BME680:
-            // Inicio BME680
-            if (!bme680.begin(0x77)) {
-                ez.canvas.println("No encontrado sensor");
-                ez.canvas.println("  BME680 !!!");
-                while (1);
-            }
-            // Configuración inicial sobremuestreo filtro inicial
-            bme680.setTemperatureOversampling(BME680_OS_8X);
-            bme680.setHumidityOversampling(BME680_OS_2X);
-            bme680.setPressureOversampling(BME680_OS_4X);
-            bme680.setIIRFilterSize(BME680_FILTER_SIZE_3);
-            bme680.setGasHeater(320, 150); // 320*C for 150 ms
-            break;
-        case LM75:
-            break;
-        case SHT21:
-            // Inicio SHT21
-            if (!sht21.begin()) {
-                ez.canvas.println("No encontrado sensor");
-                ez.canvas.println("  SHT21 !!!");
-                while (1);
-            }
-            break;
-        case lux_BH1750:
-            // Inicio BH1750
-            if (!bh1750.begin(BH1750::ONE_TIME_HIGH_RES_MODE)) {
-                ez.canvas.println("No encontrado sensor");
-                ez.canvas.println("  BH1750 !!!");
-                while (1);
-            }
-            break; 
-        case VEML6075:
-            // Inicio VEML6075
-            if (!veml6075.begin()) {
-                ez.canvas.println("No encontrado sensor");
-                ez.canvas.println("  VEML6075 !!!");
-                while (1);
-            }
-            break; 
-        case TSL2541:
-            // Inicio TSL2541
-            if (!tsl2541.begin()) {
-                ez.canvas.println("No encontrado sensor");
-                ez.canvas.println("  TSL2541 !!!");
-                while (1);
-            }
-            tsl2541.enableAutoRange(true);
-            tsl2541.setIntegrationTime(TSL2561_INTEGRATIONTIME_13MS);
-            break; 
-        case AM2320:
-            // Inicio AM2320
-            if (!am2320.begin()) {
-                ez.canvas.println("No encontrado sensor");
-                ez.canvas.println("  AM2320 !!!");
-                while (1);
-            }
-            break;
-        default:
-            ez.canvas.println("No encontrado sensor");
-            ez.canvas.println(" Conecte sensor al puerto I2C");
-            while (1);
-            break;
+#ifdef DEBUG_DATALOGGER     // Solo se ejecuta en modo DEBUG
+    void debug_Sensor(char Fecha_RTC[20]){
+    // DEBUG DataLogger
+        Serial.println("*************************************************************");
+        Serial.println("Fecha / Hora WIFI: " + myTZ.dateTime("l, d-M-y H:i:s"));
+        Serial.print("Fecha / Hora RTC: "); Serial.println(Fecha_RTC);
+        if(red_wifi) Serial.println("Red Wifi = True");
+        else Serial.println("Red Wifi = False");
+        if(estado_BLE) Serial.println("estado_BLE = True");
+        else Serial.println("estado_BLE = False");
+        if(espera_BLE) Serial.println("espera_BLE = True");
+        else Serial.println("espera_BLE = False");
+        Serial.println("Modo Energia = " + (String)mode_energy);
+        Serial.println("scan = " + (String)campos [9]);
+        Serial.println((String)campos [0] + " = " + (String)registro_1);
+        Serial.println((String)campos [2] + " = " + (String)registro_2);
+        Serial.println((String)campos [4] + " = " + (String)registro_3);
+        Serial.println((String)campos [6] + " = " + (String)registro_4);
     }
+#endif
+
+// BME280: Registra -> Temperatura, Huemdad, Presión y altitud
+void sensor_BME280(char Fecha_RTC[20]){  
+    //Leer temperatura.
+    dtostrf(bme280.readTemperature(),2,1,registro_1);
+    //Leer humedad.
+    dtostrf(bme280.readHumidity(),2,1,registro_2);
+    //Leer presion.
+    dtostrf(bme280.readPressure()/ 100.0F,2,1,registro_3);
+    //Leer altitud.
+    dtostrf(bme280.readAltitude(SEALEVELPRESSURE_mbar),2,1,registro_4);
+    //Se actulizan datos en app Blynk
+    if (estado_BLE){
+        Blynk.setProperty(V1,"label", "                         Temperatura");
+        Blynk.setProperty(V2,"label", "                         Humedad");
+        Blynk.setProperty(V3,"label", "                         Presion");
+        Blynk.setProperty(V4,"label", "                         Altidud");
+        sensor_display_Blink();
+    }
+    // DEBUG DataLogger
+    #ifdef DEBUG_DATALOGGER
+        debug_Sensor(Fecha_RTC);
+    #endif
+}
+
+// BME280: Registra -> Temperatura, Huemdad, Presión y calidad del aire
+void sensor_BME680(char Fecha_RTC[20]){
+    //Leer temperatura.
+    dtostrf(bme680.readTemperature(),2,1,registro_1);
+    //Leer humedad.
+    dtostrf(bme680.readHumidity(),2,1,registro_2);
+    //Leer presion.
+    dtostrf(bme680.readPressure()/ 100.0F,2,1,registro_3);
+    //Leer gas VOC.
+    dtostrf(bme680.readGas(),2,1,registro_4);
+    //Se actulizan datos en app Blynk
+    if (estado_BLE){
+        Blynk.setProperty(V1,"label", "                         Temperatura");
+        Blynk.setProperty(V2,"label", "                         Humedad");
+        Blynk.setProperty(V3,"label", "                         Presion");
+        Blynk.setProperty(V4,"label", "                         Gas VOC");
+        sensor_display_Blink();
+    }
+    // DEBUG DataLogger
+    #ifdef DEBUG_DATALOGGER
+        debug_Sensor(Fecha_RTC);
+    #endif
+}
+
+// LM75: Registra -> Nivel de Luminosidad
+void sensor_LM75(char Fecha_RTC[20]){
+    //Leer nivel luminusidad.
+    dtostrf(lm75.readTemperatureC(),2,1,registro_1);
+    //Registro 2.
+    dtostrf(0.0,2,1,registro_2);
+    //Registro 3.
+    dtostrf(0.0,2,1,registro_3);
+    //Registro 4.
+    dtostrf(0.0,2,1,registro_4);
+    //Se actulizan datos en app Blynk
+    if (estado_BLE){
+        Blynk.setProperty(V1,"label", "                         Temperatura");
+        Blynk.setProperty(V2,"label", " ");
+        Blynk.setProperty(V3,"label", " ");
+        Blynk.setProperty(V4,"label", " ");
+        sensor_display_Blink();
+    }
+    // DEBUG DataLogger
+    #ifdef DEBUG_DATALOGGER
+        debug_Sensor(Fecha_RTC);
+    #endif
+}
+
+//SHT21: Registra -> Temperatura, Humedad
+void sensor_SHT21(char Fecha_RTC[20]){
+    //Leer temperatura.
+    dtostrf(sht21.readTemperature(),2,1,registro_1);
+    //Leer humedad.
+    dtostrf(sht21.readHumidity(),2,1,registro_2);
+    //Registro 3.
+    dtostrf(0.0,2,1,registro_3);
+    //Registro 4.
+    dtostrf(0.0,2,1,registro_4);
+    //Se actulizan datos en app Blynk
+    if (estado_BLE){
+        Blynk.setProperty(V1,"label", "                         Temperatura");
+        Blynk.setProperty(V1,"label", "                         Humedad");
+        Blynk.setProperty(V3,"label", " ");
+        Blynk.setProperty(V4,"label", " ");
+        sensor_display_Blink();
+    }
+    // DEBUG DataLogger
+    #ifdef DEBUG_DATALOGGER
+        debug_Sensor(Fecha_RTC);
+    #endif
+}
+
+// BH1750: Registra -> Nivel de Luminosidad
+void sensor_BH1750(char Fecha_RTC[20]){
+    //Leer luminosidad.
+    dtostrf(bh1750.readLightLevel(),2,1,registro_1);
+    //Registro 2.
+    dtostrf(0.0,2,1,registro_2);
+    //Registro 3.
+    dtostrf(0.0,2,1,registro_3);
+    //Registro 4.
+    dtostrf(0.0,2,1,registro_4);
+    //Se actulizan datos en app Blynk
+    if (estado_BLE){
+        Blynk.setProperty(V1,"label", "                         Luminosidad");
+        Blynk.setProperty(V2,"label", " ");
+        Blynk.setProperty(V3,"label", " ");
+        Blynk.setProperty(V4,"label", " ");
+        sensor_display_Blink();
+    }
+    // DEBUG DataLogger
+    #ifdef DEBUG_DATALOGGER
+        debug_Sensor(Fecha_RTC);
+    #endif
+}
+
+// VEML6075: Registra -> Indice ultravioleta
+void sensor_VEML6075(char Fecha_RTC[20]){
+    //Leer indice UV.
+    dtostrf(veml6075.readUVI(),2,1,registro_1);
+    //Registro 2.
+    dtostrf(0.0,2,1,registro_2);
+    //Registro 3.
+    dtostrf(0.0,2,1,registro_3);
+    //Registro 4.
+    dtostrf(0.0,2,1,registro_4);
+    //Se actulizan datos en app Blynk
+    if (estado_BLE){
+        Blynk.setProperty(V1,"label", "                        Indice UV");
+        Blynk.setProperty(V2,"label", " ");
+        Blynk.setProperty(V3,"label", " ");
+        Blynk.setProperty(V4,"label", " ");
+        sensor_display_Blink();
+    }
+    // DEBUG DataLogger
+    #ifdef DEBUG_DATALOGGER
+        debug_Sensor(Fecha_RTC);
+    #endif
+}
+
+// TSL2541: Registra -> Nivel de Luminosidad
+void sensor_TSL2541(char Fecha_RTC[20]){
+    //Leer luminosidad.
+    sensors_event_t event;
+    tsl2541.getEvent(&event);
+    /* Display the results (light is measured in lux) */
+    dtostrf(event.light,2,1,registro_1);
+    //Registro 2.
+    dtostrf(0.0,2,1,registro_2);
+    //Registro 3.
+    dtostrf(0.0,2,1,registro_3);
+    //Registro 4.
+    dtostrf(0.0,2,1,registro_4);
+    //Se actulizan datos en app Blynk
+    if (estado_BLE){
+        Blynk.setProperty(V1,"label", "                         Luminosidad");
+        Blynk.setProperty(V2,"label", " ");
+        Blynk.setProperty(V3,"label", " ");
+        Blynk.setProperty(V4,"label", " ");
+        sensor_display_Blink();
+    }
+    // DEBUG DataLogger
+    #ifdef DEBUG_DATALOGGER
+        debug_Sensor(Fecha_RTC);
+    #endif
+}
+
+// AM2320: Registra -> Temperatura, Humedad
+void sensor_AM2320(char Fecha_RTC[20]){
+    //Leer temperatura.
+    dtostrf(am2320.readTemperature(),2,1,registro_1);
+    //Leer humedad.
+    dtostrf(am2320.readHumidity(),2,1,registro_2);
+    //Registro 3.
+    dtostrf(0.0,2,1,registro_3);
+    //Registro 4.
+    dtostrf(0.0,2,1,registro_4);
+    //Se actulizan datos en app Blynk
+    if (estado_BLE){
+        Blynk.setProperty(V1,"label", "                         Temperatura");
+        Blynk.setProperty(V1,"label", "                         Humedad");
+        Blynk.setProperty(V3,"label", " ");
+        Blynk.setProperty(V4,"label", " ");
+        sensor_display_Blink();
+    }
+    // DEBUG DataLogger
+    #ifdef DEBUG_DATALOGGER
+        debug_Sensor(Fecha_RTC);
+    #endif
 }
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 // Gestiona la adquisición de los registros del sensor, su almacenamiento en tarjeta SD, su visialización 
-// en pantlla, ahorro de enrgía DeepSleep y conexiones BLE y WIFI
+// en pantalla, ahorro de energía DeepSleep y conexiones BLE y WIFI
 void  getData(){
     // Fecha y Hora -> WIFI y RTC
     //WIFI: Provide official timezone names: https://en.wikipedia.org/wiki/List_of_tz_database_time_zones
@@ -1401,10 +1416,35 @@ void  getData(){
         myTZ.setLocation(F("Europe/Madrid"));
     }
     
-    //RTC:
+    //Reloj RTC
     DateTime now = rtc.now();
-    char buffer_Fecha[20] = "DD-MM-YYYY hh:mm:ss";
+    char buffer_Fecha[20] = "DD-MM-YYYY hh:mm:ss"; // Fecha y hora Actual
     now.toString(buffer_Fecha);
+    uint8_t dia = now.dayOfTheWeek();
+    const char * n_dia; // dia de la semana
+    switch (dia){
+        case 0: 
+            n_dia = "DOMINGO";
+            break;
+        case 1: 
+            n_dia = "LUNES";
+            break;
+        case 2: 
+            n_dia = "MARTES";
+            break;
+        case 3: 
+            n_dia = "MIERCOLES";
+            break;
+        case 4: 
+            n_dia = "JUEVES";
+            break;
+        case 5: 
+            n_dia = "VIERNES";
+            break;
+        case 6: 
+            n_dia = "SABADO";
+            break;
+    }
     
     //Adquisición y registro de datos del sensor
     //Enviar Fecha app Blynk
@@ -1421,50 +1461,52 @@ void  getData(){
         case BME280:  
             sensor_BME280(buffer_Fecha);
             if(save_SD){ // Control de grabación en SD
-                almacenar_SD(buffer_Fecha);
+                almacenar_SD(buffer_Fecha,n_dia);
             }
             break;
         case BME680:  
             sensor_BME680(buffer_Fecha);
             if(save_SD){ // Control de grabación en SD
-                almacenar_SD(buffer_Fecha);
+                almacenar_SD(buffer_Fecha,n_dia);
             }
             break;
         case LM75:  
             sensor_LM75(buffer_Fecha);
             if(save_SD){ // Control de grabación en SD
-                almacenar_SD(buffer_Fecha);
+                almacenar_SD(buffer_Fecha,n_dia);
             }
             break;
          case SHT21:  
             sensor_SHT21(buffer_Fecha);
             if(save_SD){ // Control de grabación en SD
-                almacenar_SD(buffer_Fecha);
+                almacenar_SD(buffer_Fecha,n_dia);
             }
             break;
         case lux_BH1750:  
             sensor_BH1750(buffer_Fecha);
             if(save_SD){ // Control de grabación en SD
-                almacenar_SD(buffer_Fecha);
+                almacenar_SD(buffer_Fecha,n_dia);
             }
             break;
         case VEML6075:  
             sensor_VEML6075(buffer_Fecha);
             if(save_SD){ // Control de grabación en SD
-                almacenar_SD(buffer_Fecha);
+                almacenar_SD(buffer_Fecha,n_dia);
             }
             break;
         case TSL2541:  
             sensor_TSL2541(buffer_Fecha);
             if(save_SD){ // Control de grabación en SD
-                almacenar_SD(buffer_Fecha);
+                almacenar_SD(buffer_Fecha,n_dia);
             }
             break;
         case AM2320:  
             sensor_AM2320(buffer_Fecha);
             if(save_SD){ // Control de grabación en SD
-                almacenar_SD(buffer_Fecha);
+                almacenar_SD(buffer_Fecha,n_dia);
             }
+            break;
+        case ninguno:
             break;
     }
     
@@ -1631,6 +1673,8 @@ void setup() {
             case AM2320:  
                 campos [8]="AM2320";
                 break;
+            case ninguno:
+                break;
         }
     #ifdef DEBUG_DATALOGGER
         Serial.println("SETUP: Sensor Detectado = " + (String)campos [8]);
@@ -1663,7 +1707,6 @@ void setup() {
     
     // M5ez -> Configuración inicial WIFI, reloj y Blynk App (Solo se ejecuta 1 vez en primer arranque)
     if (mode_energy==Arranque){
-        rtc.adjust(DateTime(F(__DATE__), F(__TIME__))); // Fecha y Hora de compilacion para el RTC
         ez.settings.menuObj.addItem("Bluetooth BLE", submenu_BLE);
         ez.settings.menu();
         red_wifi = ez.wifi.autoConnect; // Compruebo si me tengo que conecta al WIFI
@@ -1726,11 +1769,13 @@ void setup() {
                 Serial.println("SETUP TIMER: scan = " + (String)campos [9]);
             #endif
             break;
+        case ESP_SLEEP_WAKEUP_UNDEFINED:
+            break;
     }
 
     // Espera a estar conectado a Blynk BLE
     if ((estado_BLE)&&(espera_BLE)){
-            while (Blynk.connect(5000U) == false) {} //yield();
+            while (Blynk.connect(5000U) == false) {} 
             if (mode_energy==Ahorro)
                 Blynk.virtualWrite(V7,1);
         }
@@ -1762,10 +1807,10 @@ void loop() {
         case Arranque: // Borrado y actualizado encabezados SD -> Solo se ejecura 1 vez
             if (estado_BLE){
                 Blynk.virtualWrite(V0,0);   //DataLogger Parado
-                Blynk.virtualWrite(V1,0); //Registro_1
-                Blynk.virtualWrite(V2,0); //Registro_2
-                Blynk.virtualWrite(V3,0); //Registro_3
-                Blynk.virtualWrite(V4,0); //Registro_4
+                Blynk.virtualWrite(V1,0);   //Registro_1
+                Blynk.virtualWrite(V2,0);   //Registro_2
+                Blynk.virtualWrite(V3,0);   //Registro_3
+                Blynk.virtualWrite(V4,0);   //Registro_4
                 Blynk.setProperty(V5,"labels","30 seg","1 min","5 min","15 min", "XX min");
                 Blynk.virtualWrite(V5,1);   //Escaneo inicial 30 seg
                 Blynk.virtualWrite(V7,0);   //DataLogger Low Energy OFF
