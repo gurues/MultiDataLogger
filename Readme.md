@@ -1,6 +1,6 @@
 # **MULTISENSOR I2C DATALOGGER**
 
-## ----------------------------------------------------------------------------------------------------------------
+## -------------------------------------------------------------------------------------------
 
 ### En este proyecto se realiza un DataLogger que registra los parámetros del sensor conectado al bus I2C del M5STACK (ESP32). Un RTC DS3231 proporciona la fecha/hora del registro si no configura o dispone de red WIFI
 
