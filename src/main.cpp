@@ -25,7 +25,7 @@
 //#define BLYNK_PRINT Serial
 
 // Descomenta para relizar DEBUG por puerto serie
-//#define DEBUG_DATALOGGER
+#define DEBUG_DATALOGGER
 
 // Librerias del programa
 #include <Arduino.h>
@@ -62,10 +62,6 @@ extern const unsigned char logo[];
 
 // Definición de Constantes
 #define uS_to_S_Factor 1000         // Factor para DeepSleep en segundos
-//#define SEALEVELPRESSURE_mbar (1010) // Estimar la altitud para una presión dada comparándola con la presión
-                                    // a nivel del mar. Este ejemplo utiliza el valor predeterminado, pero 
-                                    // para obtener resultados más precisos, reemplace el valor con la 
-                                    // presión actual del nivel del mar en su ubicación. Lo usa BME280
 
 // Definición de Pines
 #define PIN_Boton_C 37  // Pin - GPIO del Boton C en M5Stack, en el programa despertará al M5Stack

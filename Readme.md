@@ -1,6 +1,6 @@
 # **MULTISENSOR I2C DATALOGGER**
 
-## ----------------------------------------------------------------------------------------------------------------
+## -------------------------------------------------------------------------------------------
 
 ### En este proyecto se realiza un DataLogger que registra los parámetros del sensor conectado al bus I2C del M5STACK (ESP32). Un RTC DS3231 proporciona la fecha/hora del registro si no configura o dispone de red WIFI
 
@@ -26,6 +26,7 @@
 
 - Detección automática del sensor conectado al bus I2C
 - Almacena los registros realizados en una tarjeta SD en formato CSV para su posterior tratamiento y análisis
+- Mediante la pantalla muestra los valores de los registros realizados, el estado de la bateria (porcentaje, cagando "CHARGING", llena "FULL") y la hora actual si estas conectado a una red WIFI
 - Puede comunicarse via bluetooth BLE con la aplicación Blynk para mostrar los datos y traspasar su propio control
 - Mediante los botones del M5STACK se configura el Datalogger mediante un despliegue de menús
   - Botón A: "SETUP"
@@ -68,7 +69,7 @@
 ### Otros contenidos
 
 - Carpeta "app BLYNK":
-  - Contiene la configuración y diseño de la app BLE que se conecta la DataLogger
+  - Contiene la configuración y diseño de la app BLE que se conecta el DataLogger
   
 - Carpeta "Gerber_PCB_M5_SENSOR_DATALOGGER"
   - Contiene el diseño de la PCB del adaptador de sensores para su conexión a los pines 5V 3V3 G SDA(21) SCL(22) del M5STACK
@@ -76,8 +77,11 @@
 - Carpeta "tools"
   - Contiene las instruciones y programas necesarios para convertir imagenes bmp, en matriz C. Estas imagenes en matrisz C pueden ser mostradas porsteriormente en la pantalla del M5STACK.
 
+- Carpeta "Fotos"
+  - Contiene fotos del DataLogger y las diversos modulos apilables que lo componen
+
 - Archivo datalog.csv. Ejemplo de archivo de registro del Datalogger. Es necesario crear o copiar un archivo con ese nombre en la tarjeta SD para que el código del programa funcione correctamente
 
 - Archivo user-partition.csv. Tabla de particiones personalizada (CSV) para gestionar las capacidades de memoria del M5STACK (ESP32), de acuerdo a los requisitos del proyecto
 
-### Proyecto realizado por gurues@2019-2020
+### Proyecto realizado con Platformio por gurues@2019-2020
