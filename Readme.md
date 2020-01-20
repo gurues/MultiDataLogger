@@ -61,8 +61,8 @@
 - Address: 58  (0x40) SHT21
 - Address: 72  (0x48) LM75
 - Address: 92  (0x5C) AM2320
-- Address: 104 (0x68) RTC DS3231
-- Address: 117 (0x75) IP5306 Controlador de Bateria del M5STACK
+- Address: 104 (0x68) RTC DS3231 - Reloj del DataLogger
+- Address: 117 (0x75) IP5306 - Controlador de Bateria del M5STACK
 - Address: 118 (0x76) BME-280
 - Address: 119 (0x77) BME-680
   
@@ -86,6 +86,6 @@
 
 ### Problemas detectados
 
-Por alguna razón, en ocasiones, he detectado que el bus I2C del M5STACK se bloquea y no reconoce los sensoreres conectados. Para desbloquear el DataLogger es necesario desconectar todos los modulos aplilables, conectarlos de nuevo y alimentar al DataLogger mediante el USB. Un vez hecho esto se puede iniciar el DataLogger, el cual detectará el sensor conectado al bus I2C
+Por alguna razón, en ocasiones, he detectado que el bus I2C del M5STACK se bloquea y no reconoce los sensoreres conectados. Para desbloquear el DataLogger es necesario desconectar todos los modulos apilables, conectarlos de nuevo y alimentar al DataLogger mediante el USB. Un vez hecho esto se puede iniciar el DataLogger, el cual detectará el sensor conectado al bus I2C
 
 ### Proyecto realizado con Platformio por gurues@2019-2020
