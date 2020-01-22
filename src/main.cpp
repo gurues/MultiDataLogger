@@ -118,7 +118,7 @@ enum Sensor_Registro{   // Sensores permitidos
 
 //  --------------  Variables de contol del Proyecto
 RTC_DATA_ATTR Estado_Energy mode_energy = Arranque; // Modos de energia -> 0: Normal 1: Ahorro Energia Activado 2: Arranque 1ª vez
-RTC_DATA_ATTR Estado_Registro init_scan = run;      // Modos de registro de datos -> 0:startv/ 1:stop / 2:run
+RTC_DATA_ATTR Estado_Registro init_scan = run;      // Modos de registro de datos -> 0:start/ 1:stop / 2:run
 RTC_DATA_ATTR Sensor_Registro sensor = ninguno;     // Sensor I2C a registrar
 RTC_DATA_ATTR uint32_t intervalo = 30000;           // Intervalo muestreo por defecto 30 seg.
 RTC_DATA_ATTR bool red_wifi = false;                // Variable de control red wifi -> false: No conectado true: conectado
@@ -174,7 +174,7 @@ void level_Battery(){ // Controlador de carga Bateria IP5306_I2C chip del M5STAC
 void inicia_Pantalla(){
     ez.screen.clear();
     level_Battery();
-    ez.buttons.show("SETUP # # START # SLEEP # STOP # OFF");
+    ez.buttons.show("SETUP # # ON # SLEEP # STOP # OFF");
     ez.canvas.y(ez.canvas.height()/5);
     ez.canvas.x(15);
     ez.canvas.font(&FreeSerifBold12pt7b);
@@ -184,7 +184,7 @@ void inicia_Pantalla(){
 void write_Pantalla(String text){
     ez.screen.clear();
     level_Battery();
-    ez.buttons.show("SETUP # # START # SLEEP # STOP # OFF");
+    ez.buttons.show("SETUP # # ON # SLEEP # STOP # OFF");
     ez.canvas.lmargin(30);
     ez.canvas.y(ez.canvas.height()/2);
     ez.canvas.font(&FreeSansBoldOblique9pt7b);
@@ -912,7 +912,7 @@ void scanButton() {
     if (btn == "SETUP"){
         config_DataLogger();
     }
-    if ((btn == "START")&&(!(timer.isEnabled(numTimer)))){
+    if ((btn == "ON")&&(!(timer.isEnabled(numTimer)))){
         write_Pantalla("Iniciado DataLogger " + (String)campos [8] + "       escaneando cada" + (String)campos [9]);
         init_scan = start;
         mode_energy = Normal;

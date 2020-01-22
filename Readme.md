@@ -35,8 +35,8 @@
     - Configuración General (WIFI, Reloj, Pantalla, BLE, ....)
     - Configuración RTC (configuracón manual o WIFI de fecha y hora)
     - EXIT
-  - Botón B: "START / SLEEP"
-    - START | Pulso corto: Activa Datalogger. Comienza a registrar
+  - Botón B: "ON / SLEEP"
+    - ON | Pulso corto: Activa Datalogger. Comienza a registrar
     - SLEEP | Pulsación larga: EL M5STACK entra en modo "deep sleep", ahorro de energia. Despierta en los intervalos configurados para realizar un registro
   - Botón C: "STOP / EXIT SLEEP"
     - STOP | Pulso corto: Para Datalogger. Detiene el registro
