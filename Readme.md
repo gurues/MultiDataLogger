@@ -26,7 +26,7 @@
 
 - Detección automática del sensor conectado al bus I2C
 - Almacena los registros realizados en una tarjeta SD en formato CSV para su posterior tratamiento y análisis
-- Mediante la pantalla muestra los valores de los registros realizados, el estado de la bateria (porcentaje, cagando "CHARGING", llena "FULL") y la hora actual si estas conectado a una red WIFI
+- Mediante la pantalla muestra valores de los registros realizados, fecha/hora, el estado de la bateria (porcentaje, cagando "CHARGING", llena "FULL") y la hora actual si estas conectado a una red WIFI
 - Puede comunicarse via bluetooth BLE con la aplicación Blynk para mostrar los datos y traspasar su propio control
 - Mediante los botones del M5STACK se configura el Datalogger mediante un despliegue de menús
   - Botón A: "SETUP"

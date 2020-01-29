@@ -21,8 +21,8 @@
 */
 
 //Descomenta para DEBUG Blynk por puerto serie
-//#define BLYNK_DEBUG
-//#define BLYNK_PRINT Serial
+#define BLYNK_DEBUG
+#define BLYNK_PRINT Serial
 
 // Descomenta para relizar DEBUG por puerto serie
 #define DEBUG_DATALOGGER
@@ -45,10 +45,10 @@
 #include "Adafruit_BME680.h"
 #include "RTClib.h"
 #include <SimpleTimer.h>
-#include <stdlib.h>
+//#include <stdlib.h>
 #include <BlynkSimpleEsp32_BLE.h>
-#include <BLEDevice.h>
-#include <BLEServer.h>
+//#include <BLEDevice.h>
+//#include <BLEServer.h>
 #include "esp_wifi.h"
 
 // Conexión BLE Blynk
@@ -131,11 +131,12 @@ Estado_Energy mem_mode_energy;                      // Etado anterior Modos de e
 const uint16_t refresco = 250;                      // Tiempo en mseg de refresco eventos(SimpleTimer funciones y Blynk App)
 // ---------------------------------------------------
 
-//  --------------  Variables a registrar del sensor
+//  --------------  Variables a registrar del sensor y Fecha/Hora
 char registro_1 [20];
 char registro_2 [20];
 char registro_3 [20];
 char registro_4 [20];
+char Fecha_RTC [20];
 // ---------------------------------------------------
 
 //  --------------  Variable control encabezados del DataLogger
@@ -154,6 +155,17 @@ WidgetTerminal terminal (V10);
 /////////////////////                  FUNIONES                 /////////////////////////////////////////////
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
+void icon_BT(uint16_t x, uint16_t w){ 
+    if (estado_BLE){      //( x, 2, x, 12, x+5, 7) (x,12, x, 22, x+5, 17)
+        M5.Lcd.fillTriangle ( x, w-8, x, w+2, x+5, w-3, WHITE);
+        M5.Lcd.fillTriangle ( x, w+2, x, w+12, x+5, w+7, WHITE);
+    }
+    else{
+        M5.Lcd.fillTriangle ( x, w-8, x, w+2, x+5, w-3, BLUE);
+        M5.Lcd.fillTriangle ( x, w+2, x, w+12, x+5, w+7, BLUE);
+    }
+}
+
 // Actualiza porcentaje bateria y muestra estado bateria: cargango o llena
 void level_Battery(){ // Controlador de carga Bateria IP5306_I2C chip del M5STACK
     if (M5.Power.isCharging()){
@@ -168,6 +180,7 @@ void level_Battery(){ // Controlador de carga Bateria IP5306_I2C chip del M5STAC
     if (estado_BLE)
         Blynk.virtualWrite(V6,battery); 
     }
+    ez.header.draw("icon_BT");
 }
 
 //Inicia Patalla: Borra, muestra botones disponibles, level bateria ...
@@ -228,6 +241,10 @@ void show_Data(){
         ez.canvas.print(registro_1);
         ez.canvas.print(" ");
         ez.canvas.println(campos[1]);
+        //Fecha y Hora se muestra en todos los sensores
+        ez.canvas.y(6*(ez.canvas.height()/6));
+        ez.canvas.x(22);
+        ez.canvas.print(Fecha_RTC);
     }
     //  sensor de 2 registros: AM2320/ SHT21
     if ((sensor==BME280)||(sensor==BME680)||(sensor==AM2320)||(sensor==SHT21)){
@@ -314,32 +331,39 @@ void leer_SD(){
             while (myFile.available()) {
                 char caracter = myFile.read();
                 if(caracter==44){ //ASCII: ',' Sa busca para encortrar los registros a recuperar
-                    switch (i) { // DIA,FECHA WIFI,FECHA RTC,registro_1,registro_2,registro_3,registro_4
+                    switch (i) { // FECHA WIFI,DIA,FECHA RTC,registro_1,registro_2,registro_3,registro_4
+                        case 2: 
+                            cadena.toCharArray(Fecha_RTC, sizeof(Fecha_RTC));
+                            #ifdef DEBUG_DATALOGGER
+                                Serial.print("Fecha/Hora recuperada SD:");
+                                Serial.println(Fecha_RTC);
+                            #endif
+                            break;
                         case 3: 
                             cadena.toCharArray(registro_1, sizeof(registro_1));
                             #ifdef DEBUG_DATALOGGER
-                                Serial.print("Registros_1 recuperados SD:");
+                                Serial.print("Registros_1 recuperado SD:");
                                 Serial.println(registro_1);
                             #endif
                             break;  
                         case 4: 
                             cadena.toCharArray(registro_2, sizeof(registro_2));
                             #ifdef DEBUG_DATALOGGER
-                                Serial.print("Registros_2 recuperados SD:");
+                                Serial.print("Registros_2 recuperado SD:");
                                 Serial.println(registro_2);
                             #endif
                             break;
                         case 5: 
                             cadena.toCharArray(registro_3, sizeof(registro_3));
                             #ifdef DEBUG_DATALOGGER
-                                Serial.print("Registros_3 recuperados SD:");
+                                Serial.print("Registros_3 recuperado SD:");
                                 Serial.println(registro_3);
                             #endif
                             break;
                         case 6: 
                             cadena.toCharArray(registro_4, sizeof(registro_4));
                             #ifdef DEBUG_DATALOGGER
-                                Serial.print("Registros_4 recuperados SD:");
+                                Serial.print("Registros_4 recuperado SD:");
                                 Serial.println(registro_4);
                             #endif
                             break;
@@ -369,13 +393,13 @@ void leer_SD(){
 }
 
 // Almacena los registros del sensor en la tarjeta SD
-void almacenar_SD(char Fecha_RTC[20], const char * dia){
+void almacenar_SD(const char * dia){
     myFile = SD.open("/datalog.csv", FILE_APPEND);//abrimos  el archivo y añadimos datos
     if (myFile) { 
         #ifdef DEBUG_DATALOGGER
             Serial.println("Almacenando datos en Tarjeta SD .....");
         #endif
-        //myFile.print((myTZ.dateTime("l, d-M-y H:i:s")));
+        // FECHA WIFI,DIA,FECHA RTC,registro_1,registro_2,registro_3,registro_4
         myFile.print((myTZ.dateTime("d-M-y H:i:s")));
         myFile.print(",");
         myFile.print(dia);       
@@ -464,69 +488,85 @@ void exit_menu(){
     menu = false;
 }
 
-// Menu de configuración BLE del DataLogger
+// Menu de configuración BLE del DataLogger, se añade a la configuración general del Datalogger
 void submenu_BLE(){
+    menu = true;
     ezMenu myMenu_BLE("Configuracion BLE");
     myMenu_BLE.addItem("BLE - START");
     myMenu_BLE.addItem("BLE - STOP");
     myMenu_BLE.addItem("BLE - EXIT");
     switch (myMenu_BLE.runOnce()) {
         case 1: // Se Activa BLE
-            if((esp_bt_controller_get_status() == ESP_BT_CONTROLLER_STATUS_IDLE)||
-                (esp_bt_controller_get_status() == ESP_BT_CONTROLLER_STATUS_NUM)){
-                btStart(); //Inicio Bluetooth
-                Blynk.setDeviceName("DataLogger");
-                Blynk.begin(auth); // Inicio BLYNK
-                while (Blynk.connect(5000U) == false) {}
-                // Si el Datalogger estaba iniciado muestra los últimos datos registrados
-                if (timer.isEnabled(numTimer)){
-                    Blynk.virtualWrite(V0,1); //DataLogger Activado
-                    leer_SD(); // Recupera los últimos registros de la SD
-                    sensor_display_Blink(); // Actualiza  V1, V2, V3 y V4 Registros 1, 2, 3 y 4
-                    //Actualiza V5
-                    if(intervalo == 30000)// 30 seg
-                        Blynk.virtualWrite(V5,1);
-                    if(intervalo == 60000)// 1 min
-                        Blynk.virtualWrite(V5,2);
-                    if(intervalo == 300000)// 5 min
-                        Blynk.virtualWrite(V5,3);
-                    if(intervalo == 90000)// 15 min
-                        Blynk.virtualWrite(V5,4);
-                    // Resto intervalos
-                    if((intervalo != 30000)&&(intervalo != 60000)&&
-                        (intervalo != 300000)&&(intervalo != 90000)){
-                        String inter_min = (String)(intervalo / 60000);
-                        inter_min = inter_min + " min";
-                        Blynk.setProperty(V5,"labels","30 seg","1 min","5 min","15 min", inter_min);
-                        Blynk.virtualWrite(V5,5);   
+            if (timer.isEnabled(numTimer)){
+                ez.msgBox("Configuracion BLE", "Antes, STOP DataLogger");
+            }
+            else{
+                if (!(btStarted())){
+                    btStart(); //Inicio Bluetooth
+                    Blynk.setDeviceName("DataLogger");
+                    Blynk.begin(auth); // Inicio BLYNK
+                    while (Blynk.connect(5000U) == false) {}
+                    // Si el Datalogger estaba iniciado muestra los últimos datos registrados
+                    if (timer.isEnabled(numTimer)){
+                        Blynk.virtualWrite(V0,1); //DataLogger Activado
+                        leer_SD(); // Recupera los últimos registros de la SD
+                        sensor_display_Blink(); // Actualiza  V1, V2, V3 y V4 Registros 1, 2, 3 y 4
+                        //Actualiza V5
+                        if(intervalo == 30000)// 30 seg
+                            Blynk.virtualWrite(V5,1);
+                        if(intervalo == 60000)// 1 min
+                            Blynk.virtualWrite(V5,2);
+                        if(intervalo == 300000)// 5 min
+                            Blynk.virtualWrite(V5,3);
+                        if(intervalo == 90000)// 15 min
+                            Blynk.virtualWrite(V5,4);
+                        // Resto intervalos
+                        if((intervalo != 30000)&&(intervalo != 60000)&&
+                            (intervalo != 300000)&&(intervalo != 90000)){
+                            String inter_min = (String)(intervalo / 60000);
+                            inter_min = inter_min + " min";
+                            Blynk.setProperty(V5,"labels","30 seg","1 min","5 min","15 min", inter_min);
+                            Blynk.virtualWrite(V5,5);   
+                        }
+                        inicia_Pantalla();
+                        show_Data();
                     }
-                    inicia_Pantalla();
-                    show_Data();
-                }
-                // No iniciado el Datalogger se muestra pantalla inicial
-                else{
-                    Blynk.virtualWrite(V0,0); //DataLogger Parado
-                    Blynk.virtualWrite(V1,0); //Registro_1
-                    Blynk.virtualWrite(V2,0); //Registro_2
-                    Blynk.virtualWrite(V3,0); //Registro_3
-                    Blynk.virtualWrite(V4,0); //Registro_4
-                    Blynk.setProperty(V5,"labels","30 seg","1 min","5 min","15 min", "XX min");
-                    Blynk.virtualWrite(V5,1); //Escaneo inicial 30 seg
-                    Blynk.virtualWrite(V7,0); //DataLogger Low Energy OFF
-                    Blynk.virtualWrite(V8,0); // Espera conexión BLE
-                    terminal.clear();
-                }
-                menu = false;
-                estado_BLE = true;   
-            }         
+                    // No iniciado el Datalogger se muestra pantalla inicial
+                    else{
+                        Blynk.virtualWrite(V0,0); //DataLogger Parado
+                        Blynk.virtualWrite(V1,0); //Registro_1
+                        Blynk.virtualWrite(V2,0); //Registro_2
+                        Blynk.virtualWrite(V3,0); //Registro_3
+                        Blynk.virtualWrite(V4,0); //Registro_4
+                        Blynk.setProperty(V5,"labels","30 seg","1 min","5 min","15 min", "XX min");
+                        Blynk.virtualWrite(V5,1); //Escaneo inicial 30 seg
+                        Blynk.virtualWrite(V7,0); //DataLogger Low Energy OFF
+                        Blynk.virtualWrite(V8,0); // Espera conexión BLE
+                        terminal.clear();
+                    }
+                    estado_BLE = true;   
+                    level_Battery();  
+                } 
+            }   
+            menu = false;   
             break;
         case 2: // Se DesActiva BLE
-            btStop();
+            if (timer.isEnabled(numTimer)){
+                ez.msgBox("Configuracion BLE", "Antes, STOP DataLogger");
+                inicia_Pantalla();
+                show_Data();
+            }
+            else{
+                if (btStarted()){
+                    btStop();
+                    estado_BLE = false;
+                    level_Battery();
+                }
+            }
             menu = false;
-            estado_BLE = false;
             break;
         case 3: // EXIT
-            exit_menu();
+            menu = false;
             break;
     }
 }
@@ -777,6 +817,8 @@ void submenu3_CONFIG(){
 void submenu4_RTC(){
     String Fecha, Hora, m;
     int mes;
+    const char* nom_mes[13] = {"Jar ","Feb ","Mar ","Apr ", "May ","Jun ",
+                                "Jul ","Aug ","Sep ","Oct ","Nov ","Dec "};
     ezMenu myMenu4("Configuracion RTC");
     myMenu4.addItem("Fecha Hora Manual");
     myMenu4.addItem("Fecha Hora WIFI");
@@ -788,44 +830,7 @@ void submenu4_RTC(){
             Fecha = (ez.textInput("Fecha -> ddmmaaaa"));
             m = Fecha.substring(2, 4);
             mes = m.toInt();
-            switch (mes) { // Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec
-                case 1:
-                    Fecha = "Jar " + Fecha.substring(0, 2) + " " + Fecha.substring(4);
-                    break;
-                case 2:
-                    Fecha = "Feb " + Fecha.substring(0, 2) + " " + Fecha.substring(4);
-                    break;
-                case 3:
-                    Fecha = "Mar " + Fecha.substring(0, 2) + " " + Fecha.substring(4);
-                    break;
-                case 4:
-                    Fecha = "Mar " + Fecha.substring(0, 2) + " " + Fecha.substring(4);
-                    break;
-                case 5:
-                    Fecha = "Apr " + Fecha.substring(0, 2) + " " + Fecha.substring(4);
-                    break;
-                case 6:
-                    Fecha = "Jun " + Fecha.substring(0, 2) + " " + Fecha.substring(4);
-                    break;
-                case 7:
-                    Fecha = "Jul " + Fecha.substring(0, 2) + " " + Fecha.substring(4);
-                    break;
-                case 8:
-                    Fecha = "Aug " + Fecha.substring(0, 2) + " " + Fecha.substring(4);
-                    break;
-                case 9:
-                    Fecha = "Sep " + Fecha.substring(0, 2) + " " + Fecha.substring(4);
-                    break;
-                case 10:
-                    Fecha = "Oct " + Fecha.substring(0, 2) + " " + Fecha.substring(4);
-                    break;
-                case 11:
-                    Fecha = "Nov " + Fecha.substring(0, 2) + " " + Fecha.substring(4);
-                    break;
-                case 12:
-                    Fecha = "Dec " + Fecha.substring(0, 2) + " " + Fecha.substring(4);
-                    break;
-            }
+            Fecha = nom_mes[mes-1] + Fecha.substring(0, 2) + " " + Fecha.substring(4);
             // ej -> Hora = 12:34 -> 1234
             Hora = (ez.textInput("Hora -> hhmm"));
             Hora = Hora.substring(0, 2) + ":" + Hora.substring(2) + ":" + "00";
@@ -944,7 +949,7 @@ void scanButton() {
             esp_wifi_stop();
         }
         if (estado_BLE){// Desconectamos BLE si estaba activo
-            esp_bt_controller_disable();
+            btStop();
         }
         M5.Power.deepSleep(intervalo*uS_to_S_Factor);
     }
@@ -1180,7 +1185,7 @@ void scanner_I2C(){
 }
 
 #ifdef DEBUG_DATALOGGER     // Solo se ejecuta en modo DEBUG
-    void debug_Sensor(char Fecha_RTC[20]){
+    void debug_Sensor(){
     // DEBUG DataLogger
         Serial.println("*************************************************************");
         Serial.println("Fecha / Hora WIFI: " + myTZ.dateTime("l, d-M-y H:i:s"));
@@ -1201,7 +1206,7 @@ void scanner_I2C(){
 #endif
 
 // BME280: Registra -> Temperatura, Huemdad, Presión y altitud
-void sensor_BME280(char Fecha_RTC[20]){  
+void sensor_BME280(){  
     //Leer temperatura.
     dtostrf(bme280.readTemperature(),2,1,registro_1);
     //Leer humedad.
@@ -1220,12 +1225,12 @@ void sensor_BME280(char Fecha_RTC[20]){
     }
     // DEBUG DataLogger
     #ifdef DEBUG_DATALOGGER
-        debug_Sensor(Fecha_RTC);
+        debug_Sensor();
     #endif
 }
 
 // BME280: Registra -> Temperatura, Huemdad, Presión y calidad del aire
-void sensor_BME680(char Fecha_RTC[20]){
+void sensor_BME680(){
     //Leer temperatura.
     dtostrf(bme680.readTemperature(),2,1,registro_1);
     //Leer humedad.
@@ -1244,12 +1249,12 @@ void sensor_BME680(char Fecha_RTC[20]){
     }
     // DEBUG DataLogger
     #ifdef DEBUG_DATALOGGER
-        debug_Sensor(Fecha_RTC);
+        debug_Sensor();
     #endif
 }
 
 // LM75: Registra -> Nivel de Luminosidad
-void sensor_LM75(char Fecha_RTC[20]){
+void sensor_LM75(){
     //Leer nivel luminusidad.
     dtostrf(lm75.readTemperatureC(),2,1,registro_1);
     //Registro 2.
@@ -1268,12 +1273,12 @@ void sensor_LM75(char Fecha_RTC[20]){
     }
     // DEBUG DataLogger
     #ifdef DEBUG_DATALOGGER
-        debug_Sensor(Fecha_RTC);
+        debug_Sensor();
     #endif
 }
 
 //SHT21: Registra -> Temperatura, Humedad
-void sensor_SHT21(char Fecha_RTC[20]){
+void sensor_SHT21(){
     //Leer temperatura.
     dtostrf(sht21.readTemperature(),2,1,registro_1);
     //Leer humedad.
@@ -1292,12 +1297,12 @@ void sensor_SHT21(char Fecha_RTC[20]){
     }
     // DEBUG DataLogger
     #ifdef DEBUG_DATALOGGER
-        debug_Sensor(Fecha_RTC);
+        debug_Sensor();
     #endif
 }
 
 // BH1750: Registra -> Nivel de Luminosidad
-void sensor_BH1750(char Fecha_RTC[20]){
+void sensor_BH1750(){
     //Leer luminosidad.
     dtostrf(bh1750.readLightLevel(),2,1,registro_1);
     //Registro 2.
@@ -1316,12 +1321,12 @@ void sensor_BH1750(char Fecha_RTC[20]){
     }
     // DEBUG DataLogger
     #ifdef DEBUG_DATALOGGER
-        debug_Sensor(Fecha_RTC);
+        debug_Sensor();
     #endif
 }
 
 // VEML6075: Registra -> Indice ultravioleta
-void sensor_VEML6075(char Fecha_RTC[20]){
+void sensor_VEML6075(){
     //Leer indice UV.
     dtostrf(veml6075.readUVI(),2,1,registro_1);
     //Registro 2.
@@ -1340,12 +1345,12 @@ void sensor_VEML6075(char Fecha_RTC[20]){
     }
     // DEBUG DataLogger
     #ifdef DEBUG_DATALOGGER
-        debug_Sensor(Fecha_RTC);
+        debug_Sensor();
     #endif
 }
 
 // TSL2541: Registra -> Nivel de Luminosidad
-void sensor_TSL2541(char Fecha_RTC[20]){
+void sensor_TSL2541(){
     //Leer luminosidad.
     sensors_event_t event;
     tsl2541.getEvent(&event);
@@ -1367,12 +1372,12 @@ void sensor_TSL2541(char Fecha_RTC[20]){
     }
     // DEBUG DataLogger
     #ifdef DEBUG_DATALOGGER
-        debug_Sensor(Fecha_RTC);
+        debug_Sensor();
     #endif
 }
 
 // AM2320: Registra -> Temperatura, Humedad
-void sensor_AM2320(char Fecha_RTC[20]){
+void sensor_AM2320(){
     //Leer temperatura.
     dtostrf(am2320.readTemperature(),2,1,registro_1);
     //Leer humedad.
@@ -1391,7 +1396,7 @@ void sensor_AM2320(char Fecha_RTC[20]){
     }
     // DEBUG DataLogger
     #ifdef DEBUG_DATALOGGER
-        debug_Sensor(Fecha_RTC);
+        debug_Sensor();
     #endif
 }
 
@@ -1414,92 +1419,75 @@ void  getData(){
     
     //Reloj RTC
     DateTime now = rtc.now();
-    char buffer_Fecha[20] = "DD-MM-YYYY hh:mm:ss"; // Fecha y hora Actual
-    now.toString(buffer_Fecha);
-    uint8_t dia = now.dayOfTheWeek();
-    const char * n_dia; // dia de la semana
-    switch (dia){
-        case 0: 
-            n_dia = "DOMINGO";
-            break;
-        case 1: 
-            n_dia = "LUNES";
-            break;
-        case 2: 
-            n_dia = "MARTES";
-            break;
-        case 3: 
-            n_dia = "MIERCOLES";
-            break;
-        case 4: 
-            n_dia = "JUEVES";
-            break;
-        case 5: 
-            n_dia = "VIERNES";
-            break;
-        case 6: 
-            n_dia = "SABADO";
-            break;
+    // Fecha y hora Actual formato -> DD-MM-YYYY hh:mm:ss
+    String formato_RTC = "DD-MM-YYYY hh:mm:ss";
+    for (int i = 0; i <19; i++){
+        Fecha_RTC[i] = formato_RTC[i];
     }
+    Fecha_RTC[19] = '\0';
+    now.toString(Fecha_RTC);
+    // dia de la semana
+    const char* nom_dia[8] = {"DOMINGO","LUNES","MARTES","MIERCOLES", "JUEVES","VIERNES","SABADO"};
+    uint8_t dia = now.dayOfTheWeek();
     
     //Adquisición y registro de datos del sensor
     //Enviar Fecha app Blynk
     if (estado_BLE){
         Blynk.virtualWrite(V0,1);
-        Blynk.virtualWrite(V9,buffer_Fecha); 
+        Blynk.virtualWrite(V9,Fecha_RTC); 
         terminal.flush();
         terminal.print("Fecha / Hora RTC: ");         
-        terminal.print(buffer_Fecha);
+        terminal.print(Fecha_RTC);
         terminal.flush();
     }   
     //Adquirimos y registramos datos del sensor
     switch(sensor) {
         case BME280:  
-            sensor_BME280(buffer_Fecha);
+            sensor_BME280();
             if(save_SD){ // Control de grabación en SD
-                almacenar_SD(buffer_Fecha,n_dia);
+                almacenar_SD(nom_dia[dia]);
             }
             break;
         case BME680:  
-            sensor_BME680(buffer_Fecha);
+            sensor_BME680();
             if(save_SD){ // Control de grabación en SD
-                almacenar_SD(buffer_Fecha,n_dia);
+                almacenar_SD(nom_dia[dia]);
             }
             break;
         case LM75:  
-            sensor_LM75(buffer_Fecha);
+            sensor_LM75();
             if(save_SD){ // Control de grabación en SD
-                almacenar_SD(buffer_Fecha,n_dia);
+                almacenar_SD(nom_dia[dia]);
             }
             break;
          case SHT21:  
-            sensor_SHT21(buffer_Fecha);
+            sensor_SHT21();
             if(save_SD){ // Control de grabación en SD
-                almacenar_SD(buffer_Fecha,n_dia);
+                almacenar_SD(nom_dia[dia]);
             }
             break;
         case lux_BH1750:  
-            sensor_BH1750(buffer_Fecha);
+            sensor_BH1750();
             if(save_SD){ // Control de grabación en SD
-                almacenar_SD(buffer_Fecha,n_dia);
+                almacenar_SD(nom_dia[dia]);
             }
             break;
         case VEML6075:  
-            sensor_VEML6075(buffer_Fecha);
+            sensor_VEML6075();
             if(save_SD){ // Control de grabación en SD
-                almacenar_SD(buffer_Fecha,n_dia);
+                almacenar_SD(nom_dia[dia]);
             }
             break;
         case TSL2541:  
-            sensor_TSL2541(buffer_Fecha);
+            sensor_TSL2541();
             if(save_SD){ // Control de grabación en SD
-                almacenar_SD(buffer_Fecha,n_dia);
+                almacenar_SD(nom_dia[dia]);
             }
             break;
         case AM2320:  
-            sensor_AM2320(buffer_Fecha);
+            sensor_AM2320();
             if(save_SD){ // Control de grabación en SD
-                almacenar_SD(buffer_Fecha,n_dia);
+                almacenar_SD(nom_dia[dia]);
             }
             break;
         case ninguno:
@@ -1518,9 +1506,11 @@ void  getData(){
     }
     
     // Sincronizo Blynk
-    if (estado_BLE)
+    if (estado_BLE){
         Blynk.syncAll();
-
+        level_Battery();
+    }
+    
     // Si estamos ejectando el DataLogger en mode_energy = Ahorro de energia dormimos el Datalogger
     // hasta la siguiente lectura para ahorra bateria Sueño profundo ESP32 del M5STACK
     if (mode_energy==Ahorro){// Desconectamos WIFI si estaba activo
@@ -1532,7 +1522,7 @@ void  getData(){
             #endif
         }
         if (estado_BLE){// Desconectamos BLE si estaba activo
-            esp_bt_controller_disable();
+            btStop();
             #ifdef DEBUG_DATALOGGER
                 Serial.println("Desconectado BLE");
             #endif
@@ -1819,7 +1809,8 @@ void loop() {
             ez.msgBox("Inicio DataLogger", "¿Quieres borrar y actualizar encabezados tarjeta SD con el sensor " 
                         + (String)campos [8] + "?", "No # # Yes",false);
             mem_mode_energy = Arranque; 
-            mode_energy = Normal; // 
+            mode_energy = Normal; 
+            ez.header.insert(ez.header.position("title") + 1, "iconBLE", 10, icon_BT);
             break;
         case Normal: // Funcionamiento normal a la espera de iteración con usuario
             if (init_scan==start){ // Inicia DataLogger
