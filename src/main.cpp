@@ -10,8 +10,8 @@
 
  Sensores soportados: 
  BME280 (temperatura, humedad, presión y altitud) - BME680 (temperatura, humedad, presión y Gas VOC)
- LM75 (temperatura) - SHT21 (temperatura y humedad) - BH1750 (nivel luminosidad) - VEML6075 (indice UV)
- TSL2541 (nivel luminosidad) - AM2320 (temperatura y humedad)
+ LM75 (temperatura) - SI7021 (temperatura y humedad) - BH1750 (nivel luminosidad) - VEML6075 (indice UV)
+ TSL2541 (nivel luminosidad) - AM2320 (temperatura y humedad) - INA219 (corriente,tensión y potencia en CC)
  
  Para más información lee el archivo Readme.md
 
@@ -33,22 +33,20 @@
 #include <ezTime.h>
 #include <M5ez.h>
 #include <Wire.h>     
-#include <BH1750.h>
-#include <Temperature_LM75_Derived.h>
 #include <Adafruit_Sensor.h>
-#include "Adafruit_AM2320.h"
-#include <Adafruit_TSL2561_U.h>
-#include "Adafruit_HTU21DF.h"
 #include <Adafruit_I2CDevice.h>
-#include "Adafruit_VEML6075.h"
+#include <Adafruit_AM2320.h>
+#include <Adafruit_TSL2561_U.h>
+#include <Adafruit_BME680.h>
 #include <Adafruit_BME280.h>
-#include "Adafruit_BME680.h"
-#include "RTClib.h"
+#include <Adafruit_INA219.h>
+#include <Temperature_LM75_Derived.h>
+#include <HTU21D.h>
+#include <BH1750.h>
+#include <VEML6075.h>
+#include <RTClib.h>
 #include <SimpleTimer.h>
-//#include <stdlib.h>
 #include <BlynkSimpleEsp32_BLE.h>
-//#include <BLEDevice.h>
-//#include <BLEServer.h>
 #include "esp_wifi.h"
 
 // Conexión BLE Blynk
@@ -73,10 +71,10 @@ extern const unsigned char logo[];
 
 // Objeto SimpleTimer para la ejecución periódica de funciones
 SimpleTimer timer;
-int numTimer, batTimer;
+int numTimer, batTimer, batTimer_0;
 
 //Objeto RTC
-RTC_DS3231 rtc;
+RTC_DS3231 rtc; // I2C 0x68
 
 // Objeto timezone
 Timezone myTZ;
@@ -88,11 +86,13 @@ File myFile;
 // Objeto BH1750
 BH1750 bh1750; // I2C 0x23
 // Objeto VEML6075
-Adafruit_VEML6075 veml6075 = Adafruit_VEML6075(); // I2C 0x38 y 0x39 No funciona
+VEML6075 veml6075; // I2C 0x38
 // Objeto TSL2541
 Adafruit_TSL2561_Unified tsl2541 = Adafruit_TSL2561_Unified(TSL2561_ADDR_FLOAT, 12345); // I2C 0x39
-// Objeto SHT21
-Adafruit_HTU21DF sht21 = Adafruit_HTU21DF(); // I2C 0x40
+// Objeto SI7021
+HTU21D si7021(HTU21D_RES_RH12_TEMP14); // I2C 0x40
+// Objeto INA219
+Adafruit_INA219 ina219(0x41); // I2C41
 // Objeto CJMCU-75 -> LM75
 Generic_LM75 lm75; // I2C 0x48
 // Objeto AM2320
@@ -101,7 +101,7 @@ Adafruit_AM2320 am2320 = Adafruit_AM2320(); // I2C 0x5C
 Adafruit_BME280 bme280; // I2C 0x76
 // Objeto BME680
 Adafruit_BME680 bme680; // I2C 0x77
-
+//***** nuevo sensor I2C
 // ---------------------------------------------------
 
 //  --------------  Variables de estado del Proyecto
@@ -112,8 +112,9 @@ enum Estado_Registro{   // Modos de registro
     stop, start, run
 };
 enum Sensor_Registro{   // Sensores permitidos
-    ninguno, BME280, BME680, LM75, SHT21, lux_BH1750, VEML6075, TSL2541, AM2320
+    ninguno, BME280, BME680, LM75, SI7021, lux_BH1750, VEML_6075, TSL2541, AM2320, INA219
 };
+//***** nuevo sensor I2C
 // ---------------------------------------------------
 
 //  --------------  Variables de contol del Proyecto
@@ -166,7 +167,7 @@ void icon_BT(uint16_t x, uint16_t w){
     }
 }
 
-// Actualiza porcentaje bateria y muestra estado bateria: cargango o llena
+// Actualiza porcentaje bateria y muestra estado bateria: cargando o llena
 void level_Battery(){ // Controlador de carga Bateria IP5306_I2C chip del M5STACK
     if (M5.Power.isCharging()){
         if (M5.Power.isChargeFull())
@@ -180,7 +181,11 @@ void level_Battery(){ // Controlador de carga Bateria IP5306_I2C chip del M5STAC
     if (estado_BLE)
         Blynk.virtualWrite(V6,battery); 
     }
-    ez.header.draw("icon_BT");
+    ez.header.draw("icon_BT"); // Actualiza icono bluetooh
+    if (battery != -1){ // Actualizado el nivel se ejecuta cada 5 min si no cada 10 seg
+        timer.disable(batTimer_0);
+        timer.enable(batTimer);
+    }
 }
 
 //Inicia Patalla: Borra, muestra botones disponibles, level bateria ...
@@ -205,13 +210,17 @@ void write_Pantalla(String text){
 } 
 
 // Actualiza campos [9] = intervalo de escaneo para mostralo por pantalla
-void getTimeScan(){
-    uint32_t scan_intervalo = intervalo / 60000;
+void getTimeScan(String unidad){
+    uint32_t scan_intervalo = 0;
+    if (unidad == " min")
+        scan_intervalo = intervalo / 60000;
+    if (unidad == " seg")
+        scan_intervalo = intervalo / 1000;
     if (intervalo == 30000){
         campos [9] =" 30 seg";
     }
     else{
-        String scan  = " " + (String)scan_intervalo + " min"; 
+        String scan  = " " + (String)scan_intervalo + unidad; 
         char * str = (char *)malloc(scan.length() + 1);
         scan.toCharArray(str, scan.length() + 1);
         campos [9] = str;
@@ -231,9 +240,11 @@ void show_Data(){
     ez.canvas.x(50);
     ez.canvas.print("Escaneo");
     ez.canvas.print(campos [9]);
+    //***** nuevo sensor I2C
     // sensor de 1 registro: LM75 / lux_BH1750 / VEML6075 / TSL2541
-    if ((sensor==BME280)||(sensor==BME680)||(sensor==AM2320)||(sensor==SHT21)||
-        (sensor==LM75)||(sensor==lux_BH1750)||(sensor==VEML6075)||(sensor==TSL2541)){
+    if ((sensor==BME280)||(sensor==BME680)||(sensor==AM2320)||(sensor==SI7021)||
+        (sensor==LM75)||(sensor==lux_BH1750)||(sensor==VEML_6075)||(sensor==TSL2541)||
+        (sensor==INA219)){
         ez.canvas.y(2*(ez.canvas.height()/6));
         ez.canvas.x(15);
         ez.canvas.print(campos[0]);
@@ -246,8 +257,10 @@ void show_Data(){
         ez.canvas.x(22);
         ez.canvas.print(Fecha_RTC);
     }
-    //  sensor de 2 registros: AM2320/ SHT21
-    if ((sensor==BME280)||(sensor==BME680)||(sensor==AM2320)||(sensor==SHT21)){
+    //***** nuevo sensor I2C
+    //  sensor de 2 registros: AM2320/ SI7021
+    if ((sensor==BME280)||(sensor==BME680)||(sensor==AM2320)||(sensor==SI7021)||
+        (sensor==INA219)){
         ez.canvas.y(3*(ez.canvas.height()/6));
         ez.canvas.x(15);
         ez.canvas.print(campos[2]);
@@ -256,8 +269,9 @@ void show_Data(){
         ez.canvas.print(" ");
         ez.canvas.println(campos[3]);
     }
+    //***** nuevo sensor I2C
     //  sensor de 4 registros: BME280 / BME680
-    if ((sensor==BME280)||(sensor==BME680)){
+    if ((sensor==BME280)||(sensor==BME680)||(sensor==INA219)){
         ez.canvas.y(4*(ez.canvas.height()/6));
         ez.canvas.x(15);
         ez.canvas.print(campos[4]);
@@ -407,11 +421,13 @@ void almacenar_SD(const char * dia){
         myFile.print(Fecha_RTC);
         myFile.print(",");
         myFile.print(registro_1);
-        if ((sensor==BME280)||(sensor==BME680)||(sensor==AM2320)||(sensor==SHT21)){ // sensor de 2 registros
+        //***** nuevo sensor I2C
+        if ((sensor==BME280)||(sensor==BME680)||(sensor==AM2320)||(sensor==SI7021)){ // sensor de 2 registros
             myFile.print(",");
             myFile.print(registro_2);  
         }
-        if ((sensor==BME280)||(sensor==BME680)){ // sensor de 4 registros
+        //***** nuevo sensor I2C
+        if ((sensor==BME280)||(sensor==BME680)||(sensor==INA219)){ // sensor de 4 registros
             myFile.print(",");
             myFile.print(registro_3);  
             myFile.print(",");
@@ -430,8 +446,10 @@ void almacenar_SD(const char * dia){
 // Actualización registros app BLYNK
 void sensor_display_Blink(){
     // sensor de 1 registro: LM75 / lux_BH1750 / VEML6075 / TSL2541
-    if ((sensor==BME280)||(sensor==BME680)||(sensor==AM2320)||(sensor==SHT21)||
-        (sensor==LM75)||(sensor==lux_BH1750)||(sensor==VEML6075)||(sensor==TSL2541)){
+    //***** nuevo sensor I2C
+    if ((sensor==BME280)||(sensor==BME680)||(sensor==AM2320)||(sensor==SI7021)||
+        (sensor==LM75)||(sensor==lux_BH1750)||(sensor==VEML_6075)||(sensor==TSL2541)||
+        (sensor==INA219)){
         //Actualizo Registro_1 en Blink app
         Blynk.virtualWrite(V1,registro_1); 
         terminal.print("    ");
@@ -442,8 +460,10 @@ void sensor_display_Blink(){
         terminal.print(campos[1]);
         terminal.flush();
     }
-    //  sensor de 2 registros: AM2320/ SHT21
-    if ((sensor==BME280)||(sensor==BME680)||(sensor==AM2320)||(sensor==SHT21)){
+    //  sensor de 2 registros: AM2320/ SI7021
+    //***** nuevo sensor I2C
+    if ((sensor==BME280)||(sensor==BME680)||(sensor==AM2320)||(sensor==SI7021)||
+        (sensor==INA219)){
         //Actualizo Registro_2 en Blink app
         Blynk.virtualWrite(V2,registro_2); 
         terminal.print("    ");
@@ -454,8 +474,9 @@ void sensor_display_Blink(){
         terminal.print(campos[3]);
         terminal.flush();
     }
-    //  sensor de 4 registros: BME280 / BME680
-    if ((sensor==BME280)||(sensor==BME680)){
+    //  sensor de 4 registros: BME280 / BME680 / INA219
+    //***** nuevo sensor I2C
+    if ((sensor==BME280)||(sensor==BME680)||(sensor==INA219)){
         //Actualizo Registro_3 en Blink app
         Blynk.virtualWrite(V3,registro_3);
         terminal.print("    ");
@@ -506,44 +527,16 @@ void submenu_BLE(){
                     Blynk.setDeviceName("DataLogger");
                     Blynk.begin(auth); // Inicio BLYNK
                     while (Blynk.connect(5000U) == false) {}
-                    // Si el Datalogger estaba iniciado muestra los últimos datos registrados
-                    if (timer.isEnabled(numTimer)){
-                        Blynk.virtualWrite(V0,1); //DataLogger Activado
-                        leer_SD(); // Recupera los últimos registros de la SD
-                        sensor_display_Blink(); // Actualiza  V1, V2, V3 y V4 Registros 1, 2, 3 y 4
-                        //Actualiza V5
-                        if(intervalo == 30000)// 30 seg
-                            Blynk.virtualWrite(V5,1);
-                        if(intervalo == 60000)// 1 min
-                            Blynk.virtualWrite(V5,2);
-                        if(intervalo == 300000)// 5 min
-                            Blynk.virtualWrite(V5,3);
-                        if(intervalo == 90000)// 15 min
-                            Blynk.virtualWrite(V5,4);
-                        // Resto intervalos
-                        if((intervalo != 30000)&&(intervalo != 60000)&&
-                            (intervalo != 300000)&&(intervalo != 90000)){
-                            String inter_min = (String)(intervalo / 60000);
-                            inter_min = inter_min + " min";
-                            Blynk.setProperty(V5,"labels","30 seg","1 min","5 min","15 min", inter_min);
-                            Blynk.virtualWrite(V5,5);   
-                        }
-                        inicia_Pantalla();
-                        show_Data();
-                    }
-                    // No iniciado el Datalogger se muestra pantalla inicial
-                    else{
-                        Blynk.virtualWrite(V0,0); //DataLogger Parado
-                        Blynk.virtualWrite(V1,0); //Registro_1
-                        Blynk.virtualWrite(V2,0); //Registro_2
-                        Blynk.virtualWrite(V3,0); //Registro_3
-                        Blynk.virtualWrite(V4,0); //Registro_4
-                        Blynk.setProperty(V5,"labels","30 seg","1 min","5 min","15 min", "XX min");
-                        Blynk.virtualWrite(V5,1); //Escaneo inicial 30 seg
-                        Blynk.virtualWrite(V7,0); //DataLogger Low Energy OFF
-                        Blynk.virtualWrite(V8,0); // Espera conexión BLE
-                        terminal.clear();
-                    }
+                    Blynk.virtualWrite(V0,0); //DataLogger Parado
+                    Blynk.virtualWrite(V1,0); //Registro_1
+                    Blynk.virtualWrite(V2,0); //Registro_2
+                    Blynk.virtualWrite(V3,0); //Registro_3
+                    Blynk.virtualWrite(V4,0); //Registro_4
+                    Blynk.setProperty(V5,"labels","30 seg","1 min","5 min","15 min", "XXX");
+                    Blynk.virtualWrite(V5,1); //Escaneo inicial 30 seg
+                    Blynk.virtualWrite(V7,0); //DataLogger Low Energy OFF
+                    Blynk.virtualWrite(V8,0); // Espera conexión BLE
+                    terminal.clear();
                     estado_BLE = true;   
                     level_Battery();  
                 } 
@@ -578,7 +571,8 @@ void submenu1_SCAN(){
     myMenu1.addItem("1 min");
     myMenu1.addItem("5 min");
     myMenu1.addItem("15 min");
-    myMenu1.addItem("Intervalo escaneo en minutos");
+    myMenu1.addItem("Intervalo scan en minutos");
+    myMenu1.addItem("Intervalo scan en segundos");
     myMenu1.addItem("EXIT");
     String scaneo;
 
@@ -606,7 +600,7 @@ void submenu1_SCAN(){
             }
             else{
                 intervalo = 60000;
-                getTimeScan();
+                getTimeScan(" min");
                 if (estado_BLE)
                     Blynk.virtualWrite(V5,2);
                 inicia_Pantalla();
@@ -621,7 +615,7 @@ void submenu1_SCAN(){
             }
             else{
                 intervalo = 300000;
-                getTimeScan();
+                getTimeScan(" min");
                 if (estado_BLE)
                     Blynk.virtualWrite(V5,3);
                 inicia_Pantalla();
@@ -636,14 +630,14 @@ void submenu1_SCAN(){
             }
             else{
                 intervalo = 900000;
-                getTimeScan();
+                getTimeScan(" min");
                 if (estado_BLE)
                     Blynk.virtualWrite(V5,4);
                 inicia_Pantalla();
             }
             menu = false;
             break;
-        case 5: // Intervalo escaneo en seg
+        case 5: // Intervalo escaneo en minutos
   	        if (timer.isEnabled(numTimer)){
                 ez.msgBox("Configura intervalo de escaneo", "Antes, STOP DataLogger");
                 inicia_Pantalla();
@@ -652,25 +646,50 @@ void submenu1_SCAN(){
             else{
                 scaneo = (ez.textInput("Intervalo escaneo minutos"));
                 intervalo = scaneo.toInt();
-                if (intervalo == 0){
-                    intervalo = 30000; // 30 seg por defecto
-                    ez.msgBox("Intervalo escaneo", "Error al introducir el intervalo de escaneo. Intentalo de nuevo.");
-                }
-                else{
+                if (intervalo >= 1){
                     scaneo = " " + scaneo + " min";
                     intervalo = intervalo * 60000;
-                    getTimeScan();
+                    getTimeScan(" min");
                     if (estado_BLE){
                         Blynk.setProperty(V5,"labels","30 seg","1 min","5 min","15 min", scaneo);
                         Blynk.virtualWrite(V5,5);
                     }
                     ez.msgBox("Intervalo escaneo", "Introducido " + scaneo + " como intervalo de escaneo");
                 }
+                else{
+                    ez.msgBox("Intervalo escaneo MIN", "Error al introducir el intervalo de escaneo. El intervalo debe ser mayor o igual a 1. Intentalo de nuevo.");
+                }
                 inicia_Pantalla();
             }
             menu = false;
             break;
-        case 6: // EXIT
+        case 6: // Intervalo escaneo en seg
+  	        if (timer.isEnabled(numTimer)){
+                ez.msgBox("Configura intervalo de escaneo", "Antes, STOP DataLogger");
+                inicia_Pantalla();
+                show_Data();
+            }
+            else{
+                scaneo = (ez.textInput("Intervalo escaneo SEGUNDOS"));
+                intervalo = scaneo.toInt();
+                if (intervalo >= 2){
+                    scaneo = " " + scaneo + " seg";
+                    intervalo = intervalo * 1000;
+                    getTimeScan(" seg");
+                    if (estado_BLE){
+                        Blynk.setProperty(V5,"labels","30 seg","1 min","5 min","15 min", scaneo);
+                        Blynk.virtualWrite(V5,5);
+                    }
+                    ez.msgBox("Intervalo escaneo", "Introducido " + scaneo + " como intervalo de escaneo");
+                }
+                else{
+                    ez.msgBox("Intervalo escaneo SEG", "Error al introducir el intervalo de escaneo. El intervalo debe ser mayor o igual a 2. Intentalo de nuevo.");
+                }
+                inicia_Pantalla();
+            }
+            menu = false;
+            break;
+        case 7: // EXIT
             exit_menu();
             break;
     }
@@ -712,7 +731,7 @@ void borrado_encabezado_SD(){
                 ez.msgBox("Borrar SD - SI", "Datos Borrados de tarjeta SD");
                 inicia_Pantalla();
                 break;
-            case VEML6075:  // Se crea encabezado VEML6075 en datalog.csv
+            case VEML_6075:  // Se crea encabezado VEML6075 en datalog.csv
                 myFile.println("Fecha Hora WIFI,Dia,Fecha Hora RTC,indice UV,, Sensor VEML6075");
                 myFile.close();
                 ez.msgBox("Borrar SD - SI", "Datos Borrados de tarjeta SD");
@@ -724,8 +743,8 @@ void borrado_encabezado_SD(){
                 ez.msgBox("Borrar SD - SI", "Datos Borrados de tarjeta SD");
                 inicia_Pantalla();
                 break;
-            case SHT21:     // Se crea encabezado SHT21 en datalog.csv
-                myFile.println("Fecha Hora WIFI,Dia,Fecha Hora RTC,Temperatura (ºC),Humedad (%), Sensor SHT21");
+            case SI7021:     // Se crea encabezado SI7021 en datalog.csv
+                myFile.println("Fecha Hora WIFI,Dia,Fecha Hora RTC,Temperatura (ºC),Humedad (%), Sensor SI7021");
                 myFile.close();
                 ez.msgBox("Borrar SD - SI", "Datos Borrados de tarjeta SD");
                 inicia_Pantalla();
@@ -736,6 +755,13 @@ void borrado_encabezado_SD(){
                 ez.msgBox("Borrar SD - SI", "Datos Borrados de tarjeta SD");
                 inicia_Pantalla();
                 break;
+            case INA219:  // Se crea encabezado INA219 en datalog.csv
+                myFile.println("Fecha Hora WIFI,Dia,Fecha Hora RTC,Voltaje Prueba (V),Voltaje Shunt (V),Corriente Shunt (mA),Potencia (mW), Sensor INA219");
+                myFile.close();
+                ez.msgBox("Borrar SD - SI", "Datos Borrados de tarjeta SD");
+                inicia_Pantalla();
+                break;
+            //***** nuevo sensor I2C
             case ninguno:
                 break;
         }
@@ -918,7 +944,7 @@ void scanButton() {
         config_DataLogger();
     }
     if ((btn == "ON")&&(!(timer.isEnabled(numTimer)))){
-        write_Pantalla("Iniciado DataLogger " + (String)campos [8] + "       escaneando cada" + (String)campos [9]);
+        write_Pantalla("Iniciado DataLogger " + (String)campos [8] + "         escaneando cada" + (String)campos [9]);
         init_scan = start;
         mode_energy = Normal;
         if (estado_BLE){
@@ -940,18 +966,23 @@ void scanButton() {
     }
 
     if ((btn == "SLEEP")&&(timer.isEnabled(numTimer))){
-        mode_energy = Ahorro;
-        if (estado_BLE)
-            Blynk.virtualWrite(V7,mode_energy);
-        //Sueño profundo ESP32 del M5STACK
-        if (red_wifi){ // Desconectamos WIFI si esta activo
-            esp_wifi_disconnect();
-            esp_wifi_stop();
+        if (intervalo >= 30000){ // Sueño profundo solo si escaneo es mayor a 30 segundos
+            mode_energy = Ahorro;
+            if (estado_BLE)
+                Blynk.virtualWrite(V7,mode_energy);
+            //Sueño profundo ESP32 del M5STACK
+            if (red_wifi){ // Desconectamos WIFI si esta activo
+                esp_wifi_disconnect();
+                esp_wifi_stop();
+            }
+            if (estado_BLE){// Desconectamos BLE si estaba activo
+                btStop();
+            }
+            M5.Power.deepSleep(intervalo*uS_to_S_Factor);
         }
-        if (estado_BLE){// Desconectamos BLE si estaba activo
-            btStop();
+        else{
+            ez.msgBox("Ahorro Energia", "No se permite el Ahorro Energia para escaneos inferiores a 30 seg");
         }
-        M5.Power.deepSleep(intervalo*uS_to_S_Factor);
     }
     if (btn == "Yes") {
         // Borrado archivo datalog.csv y actulización encabezados de la SD
@@ -1008,11 +1039,11 @@ void inicio_sensor(){
         case LM75:
             // Inicio LM75: No necesita configuración inicial
             break; 
-        case SHT21:
-            // Inicio SHT21
-            if (!sht21.begin()) {
+        case SI7021:
+            // Inicio SI7021
+            if (!si7021.begin()) {
                 ez.canvas.println("No encontrado sensor");
-                ez.canvas.println("  SHT21 !!!");
+                ez.canvas.println("  SI7021 !!!");
                 while (1);
             }
             break;
@@ -1024,7 +1055,7 @@ void inicio_sensor(){
                 while (1);
             }
             break; 
-        case VEML6075:
+        case VEML_6075:
             // Inicio VEML6075
             if (!veml6075.begin()) {
                 ez.canvas.println("No encontrado sensor");
@@ -1050,6 +1081,11 @@ void inicio_sensor(){
                 while (1);
             }
             break;
+        case INA219:
+            // Inicio INA219
+            ina219.begin();
+            break;    
+        //***** nuevo sensor I2C
         case ninguno: // default
             ez.canvas.println("No encontrado sensor");
             ez.canvas.println(" Conecte sensor al puerto I2C");
@@ -1082,6 +1118,7 @@ void scanner_I2C(){
         Serial.println (")");
     #endif
     switch(direccion_I2C){
+        //***** nuevo sensor I2C, ordenar por dirección HEX del bus I2C
         case 35://0x23
             sensor = lux_BH1750;
             //Se actulizan datos del encabezado
@@ -1095,7 +1132,7 @@ void scanner_I2C(){
             campos[7] = "-";
             break;
         case 56://0x38
-            sensor = VEML6075;
+            sensor = VEML_6075;
             //Se actulizan datos del encabezado
             campos[0] = "Indice UV";
             campos[1] = " ";
@@ -1118,8 +1155,8 @@ void scanner_I2C(){
             campos[6] = "-";
             campos[7] = "-";
             break;
-        case 58://0x40
-            sensor = SHT21;
+        case 64://0x40
+            sensor = SI7021;
             //Se actulizan datos del encabezado
             campos[0] = "Temperatura";
             campos[1] = "ºC";
@@ -1129,6 +1166,18 @@ void scanner_I2C(){
             campos[5] = "-";
             campos[6] = "-";
             campos[7] = "-";
+            break;
+        case 65://0x41
+            sensor = INA219;
+            //Se actulizan datos del encabezado
+            campos[0] = "Voltaje Prueba";
+            campos[1] = "V";
+            campos[2] = "Voltaje Shunt";
+            campos[3] = "V";
+            campos[4] = "Corriente Shunt";
+            campos[5] = "mA";
+            campos[6] = "Potencia";
+            campos[7] = "mW";
             break;
         case 72://0x48
             sensor = LM75;
@@ -1277,12 +1326,12 @@ void sensor_LM75(){
     #endif
 }
 
-//SHT21: Registra -> Temperatura, Humedad
-void sensor_SHT21(){
+//SI7021: Registra -> Temperatura, Humedad
+void sensor_SI7021(){
     //Leer temperatura.
-    dtostrf(sht21.readTemperature(),2,1,registro_1);
+    dtostrf(si7021.readTemperature(),2,1,registro_1);
     //Leer humedad.
-    dtostrf(sht21.readHumidity(),2,1,registro_2);
+    dtostrf(si7021.readCompensatedHumidity(),2,1,registro_2);
     //Registro 3.
     dtostrf(0.0,2,1,registro_3);
     //Registro 4.
@@ -1290,7 +1339,7 @@ void sensor_SHT21(){
     //Se actulizan datos en app Blynk
     if (estado_BLE){
         Blynk.setProperty(V1,"label", "                         Temperatura");
-        Blynk.setProperty(V1,"label", "                         Humedad");
+        Blynk.setProperty(V2,"label", "                         Humedad");
         Blynk.setProperty(V3,"label", " ");
         Blynk.setProperty(V4,"label", " ");
         sensor_display_Blink();
@@ -1327,8 +1376,10 @@ void sensor_BH1750(){
 
 // VEML6075: Registra -> Indice ultravioleta
 void sensor_VEML6075(){
+    // Poll sensor
+    veml6075.update();
     //Leer indice UV.
-    dtostrf(veml6075.readUVI(),2,1,registro_1);
+    dtostrf(veml6075.getUVIndex(),2,1,registro_1);
     //Registro 2.
     dtostrf(0.0,2,1,registro_2);
     //Registro 3.
@@ -1400,6 +1451,31 @@ void sensor_AM2320(){
     #endif
 }
 
+// INA219: Registra -> Tensión Prueba, Tensión Shunt, Corriente Shunt y Potencia Shunt
+void sensor_INA219(){
+    //Tensión Prueba.
+    dtostrf(ina219.getBusVoltage_V(),2,1,registro_1);
+    //ensión Shunt.
+    dtostrf(ina219.getShuntVoltage_mV(),2,1,registro_2);
+    //Corriente Shunt.
+    dtostrf(ina219.getCurrent_mA(),2,1,registro_3);
+    //Potencia Shunt.
+    dtostrf(ina219.getPower_mW(),2,1,registro_4);
+    //Se actulizan datos en app Blynk
+    if (estado_BLE){
+        Blynk.setProperty(V1,"label", "                      Tension Prueba");
+        Blynk.setProperty(V2,"label", "                      Tension Shunt");
+        Blynk.setProperty(V3,"label", "                     Corriente Shunt");
+        Blynk.setProperty(V4,"label", "                      Potencia Shunt");
+        sensor_display_Blink();
+    }
+    // DEBUG DataLogger
+    #ifdef DEBUG_DATALOGGER
+        debug_Sensor();
+    #endif
+}
+//***** nuevo sensor I2C
+
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 // Gestiona la adquisición de los registros del sensor, su almacenamiento en tarjeta SD, su visialización 
@@ -1460,8 +1536,8 @@ void  getData(){
                 almacenar_SD(nom_dia[dia]);
             }
             break;
-         case SHT21:  
-            sensor_SHT21();
+         case SI7021:  
+            sensor_SI7021();
             if(save_SD){ // Control de grabación en SD
                 almacenar_SD(nom_dia[dia]);
             }
@@ -1472,7 +1548,7 @@ void  getData(){
                 almacenar_SD(nom_dia[dia]);
             }
             break;
-        case VEML6075:  
+        case VEML_6075:  
             sensor_VEML6075();
             if(save_SD){ // Control de grabación en SD
                 almacenar_SD(nom_dia[dia]);
@@ -1490,6 +1566,13 @@ void  getData(){
                 almacenar_SD(nom_dia[dia]);
             }
             break;
+        case INA219:  
+            sensor_INA219();
+            if(save_SD){ // Control de grabación en SD
+                almacenar_SD(nom_dia[dia]);
+            }
+            break;
+        //***** nuevo sensor I2C
         case ninguno:
             break;
     }
@@ -1543,43 +1626,41 @@ BLYNK_CONNECTED() {
 }
 
 // Controla PULSADOR ON / OFF (BUTTON) DATALOGGER Blynk App
-BLYNK_WRITE(V0)
-{ 
+BLYNK_WRITE(V0){ 
     init_scan = (Estado_Registro)param.asInt();   
 }
 
 // Controla el muestreo del DATALOGGER Blynk App
-BLYNK_WRITE(V5)
-{ 
+BLYNK_WRITE(V5){ 
     switch (param.asInt()){
         case 1: // 30seg
             intervalo = 30000;
-            getTimeScan();
-            Blynk.setProperty(V5,"labels","30 seg","1 min","5 min","15 min", "XX min");
+            getTimeScan(" seg");
+            Blynk.setProperty(V5,"labels","30 seg","1 min","5 min","15 min", "XXX");
             #ifdef DEBUG_DATALOGGER
                 Serial.println("Blynk 30 seg");
             #endif
             break;
-        case 2: // 60 seg
+        case 2: // 1 min
             intervalo = 60000;
-            getTimeScan();
-            Blynk.setProperty(V5,"labels","30 seg","1 min","5 min","15 min", "XX min");
+            getTimeScan(" min");
+            Blynk.setProperty(V5,"labels","30 seg","1 min","5 min","15 min", "XXX");
             #ifdef DEBUG_DATALOGGER
                 Serial.println("Blynk 60 seg");
             #endif
             break;
         case 3: // 5 min
             intervalo = 300000;
-            getTimeScan();
-            Blynk.setProperty(V5,"labels","30 seg","1 min","5 min","15 min", "XX min");
+            getTimeScan(" min");
+            Blynk.setProperty(V5,"labels","30 seg","1 min","5 min","15 min", "XXX");
             #ifdef DEBUG_DATALOGGER
                 Serial.println("Blynk 5 min");
             #endif
             break;
         case 4: // 15 min
             intervalo = 900000;
-            getTimeScan();
-            Blynk.setProperty(V5,"labels","30 seg","1 min","5 min","15 min", "XX min");
+            getTimeScan(" min");
+            Blynk.setProperty(V5,"labels","30 seg","1 min","5 min","15 min", "XXX");
             #ifdef DEBUG_DATALOGGER
                 Serial.println("Blynk 15 min");
             #endif
@@ -1593,8 +1674,7 @@ BLYNK_WRITE(V5)
 }
 
 // Controla PULSADOR ON / OFF (BUTTON) LOW ENERGY DATALOGGER Blynk App
-BLYNK_WRITE(V7)
-{ 
+BLYNK_WRITE(V7){ 
     mode_energy = (Estado_Energy)param.asInt();
     // No vuelve a entrar en modo Ahorro energía
     if (mode_energy==Normal){
@@ -1604,11 +1684,14 @@ BLYNK_WRITE(V7)
         timer.enable(batTimer);
         inicia_Pantalla();
     }
+    if (intervalo < 30000){ // Solo se permite Ahorro Energia con escaneos mayores o iguales a 30 seg
+        mode_energy = Normal;
+        Blynk.virtualWrite(V7,0); // Ahorro Energia DesActivado
+    }
 }
 
 // Espera la conexión BLE incluso en ahorro de energía
-BLYNK_WRITE(V8)
-{ 
+BLYNK_WRITE(V8){ 
     espera_BLE = param.asInt(); 
 }
 
@@ -1644,13 +1727,13 @@ void setup() {
             case LM75:  
                 campos [8]="LM75";
                 break;
-            case SHT21:  
-                campos [8]="SHT21";
+            case SI7021:  
+                campos [8]="SI7021";
                 break;
             case lux_BH1750:  
                 campos [8]="BH1750";
                 break;
-            case VEML6075:  
+            case VEML_6075:  
                 campos [8]="VEML6075";
                 break;
             case TSL2541:  
@@ -1659,6 +1742,10 @@ void setup() {
             case AM2320:  
                 campos [8]="AM2320";
                 break;
+            case INA219:  
+                campos [8]="INA219";
+                break;
+            //***** nuevo sensor I2C
             case ninguno:
                 break;
         }
@@ -1737,7 +1824,7 @@ void setup() {
                 ez.clock.tz.setLocation(F("Europe/Madrid"));
                 inicia_Pantalla();
             }
-            getTimeScan();
+            getTimeScan(" min");
             level_Battery(); //Actualizo nivel Batería
             #ifdef DEBUG_DATALOGGER
                 Serial.println("SETUP EXT0: intervalo = " + (String)intervalo);
@@ -1750,7 +1837,7 @@ void setup() {
             M5.Lcd.setBrightness(0);
             M5.Lcd.sleep();
             #ifdef DEBUG_DATALOGGER
-                getTimeScan();
+                getTimeScan(" min");
                 Serial.println("SETUP TIMER: intervalo = " + (String)intervalo);
                 Serial.println("SETUP TIMER: scan = " + (String)campos [9]);
             #endif
@@ -1766,15 +1853,12 @@ void setup() {
                 Blynk.virtualWrite(V7,1);
         }
 
-    // En mode_energy "ahorro de energia" desactiva actualizar nivel bateria en pantalla
-    if (mode_energy==Ahorro){ 
-        timer.disable(batTimer);
-    }
-
     //Inicio y desactivo Timer
     numTimer = timer.setInterval(intervalo, getData);
     batTimer = timer.setInterval(300000, level_Battery); // Cada 5 min actualizo nivel de bateria
+    batTimer_0 = timer.setInterval(10000, level_Battery); // Cada 10 seg actualizo nivel de bateria
     timer.disable(numTimer);
+    timer.disable(batTimer);
 
     // Eventos asociados a M5ez: SimpleTimer run y Blynk App
     ez.addEvent(programa_Eventos, refresco); 
@@ -1786,6 +1870,7 @@ void loop() {
     red_wifi = ez.wifi.autoConnect; // Compruebo WIFI
     switch (mode_energy) {
         case Ahorro: // Ahorro de energia con DataLogger inicializado
+            timer.disable(batTimer_0); // Desactivo actualización porcentaje bateria
             timer.disable(batTimer); // Desactivo actualización porcentaje bateria
             init_scan = start; // Para cuando se desactive el modo ahorro energia activar el timer
             getData(); // recoge y graba datos en SD cada intervalo
@@ -1797,7 +1882,7 @@ void loop() {
                 Blynk.virtualWrite(V2,0);   //Registro_2
                 Blynk.virtualWrite(V3,0);   //Registro_3
                 Blynk.virtualWrite(V4,0);   //Registro_4
-                Blynk.setProperty(V5,"labels","30 seg","1 min","5 min","15 min", "XX min");
+                Blynk.setProperty(V5,"labels","30 seg","1 min","5 min","15 min", "XXX");
                 Blynk.virtualWrite(V5,1);   //Escaneo inicial 30 seg
                 Blynk.virtualWrite(V7,0);   //DataLogger Low Energy OFF
                 Blynk.virtualWrite(V8,0);   //Espera conexión BLE
@@ -1828,7 +1913,7 @@ void loop() {
                     show_Data();        // Muestra los últimos registros en pantalla
                 }
                 else{ // iniciado DataLogger por primera vez 
-                    write_Pantalla("Iniciado DataLogger " + (String)campos [8] + "       escaneando cada" + String(campos [9]));
+                    write_Pantalla("Iniciado DataLogger " + (String)campos [8] + "         escaneando cada" + String(campos [9]));
                 }
                 mode_energy = Normal;
             }
